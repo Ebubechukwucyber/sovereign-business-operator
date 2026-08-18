@@ -4,104 +4,520 @@ from telegram.ext import (
     CommandHandler,
     ConversationHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
 
-from config import OWNER_TELEGRAM_ID, TELEGRAM_BOT_TOKEN
+from config import (
+    TELEGRAM_BOT_TOKEN,
+    OWNER_TELEGRAM_ID,
+)
+
 from db import init_db
+
 from handlers.owner import (
     setup_start,
-    studio_name,
-    services,
-    min_price,
-    max_price,
-    default_days,
-    setup_cancel,
-    STUDIO_NAME,
-    SERVICES,
-    MIN_PRICE,
-    MAX_PRICE,
-    DEFAULT_DAYS,
+    setup_name,
+    setup_services,
+    setup_min_price,
+    setup_max_price,
+    setup_days,
+    cancel_setup,
+
+    settings_menu,
+    edit_name_start,
+    edit_services_start,
+    edit_min_start,
+    edit_max_start,
+    edit_days_start,
+    save_setting_value,
+
+    owner_home,
+
+    jobs_command,
+    job_command,
+    pause_command,
+    resume_command,
+
+    SETUP_NAME,
+    SETUP_SERVICES,
+    SETUP_MIN_PRICE,
+    SETUP_MAX_PRICE,
+    SETUP_DAYS,
+
+    EDIT_NAME,
+    EDIT_SERVICES,
+    EDIT_MIN_PRICE,
+    EDIT_MAX_PRICE,
+    EDIT_DAYS,
+)
+
+from handlers.client import (
+    start_client,
+    new_order_start,
+    handle_client_name,
+    handle_intake_answer,
+    handle_edit_request,
+    cancel_intake,
+
+    client_home,
+    my_orders,
+    order_detail,
+    payment_page,
+    confirm_paid,
+    edit_order_start,
+    view_proposal,
+    services_page,
+    contact_studio,
+    handle_paid,
+
+    NAME,
+    QUESTION_1,
+    QUESTION_2,
+    QUESTION_3,
+    QUESTION_4,
+    QUESTION_5,
+    EDIT_REQUEST,
 )
 
 
-async def start(
+# =========================================================
+# /START
+# =========================================================
+
+async def start_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
+):
+
     user_id = update.effective_user.id
 
     if user_id == OWNER_TELEGRAM_ID:
-        await update.message.reply_text(
-            "Welcome back, Owner.\n\n"
-            "Sovereign Business Operator is online.\n\n"
-            "/setup — configure your business"
-        )
-    else:
-        await update.message.reply_text(
-            "Hi! 👋\n\n"
-            "I'm the studio assistant."
+
+        await owner_home(
+            update,
+            context,
         )
 
+        return ConversationHandler.END
 
-def main() -> None:
-    if not TELEGRAM_BOT_TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN is missing from .env")
+    await start_client(
+        update,
+        context,
+    )
 
-    if not OWNER_TELEGRAM_ID:
-        raise ValueError("OWNER_TELEGRAM_ID is missing from .env")
+    return ConversationHandler.END
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
 
     init_db()
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    if not TELEGRAM_BOT_TOKEN:
+        raise RuntimeError(
+            "TELEGRAM_BOT_TOKEN is missing from .env"
+        )
 
-    setup_handler = ConversationHandler(
+    application = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .build()
+    )
+
+    # =====================================================
+    # OWNER SETUP
+    # =====================================================
+
+    owner_setup_conversation = ConversationHandler(
         entry_points=[
-            CommandHandler("setup", setup_start)
+            CommandHandler(
+                "setup",
+                setup_start,
+            ),
         ],
+
         states={
-            STUDIO_NAME: [
+
+            SETUP_NAME: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    studio_name,
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    setup_name,
                 )
             ],
-            SERVICES: [
+
+            SETUP_SERVICES: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    services,
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    setup_services,
                 )
             ],
-            MIN_PRICE: [
+
+            SETUP_MIN_PRICE: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    min_price,
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    setup_min_price,
                 )
             ],
-            MAX_PRICE: [
+
+            SETUP_MAX_PRICE: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    max_price,
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    setup_max_price,
                 )
             ],
-            DEFAULT_DAYS: [
+
+            SETUP_DAYS: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    default_days,
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    setup_days,
                 )
             ],
         },
+
         fallbacks=[
-            CommandHandler("cancel", setup_cancel)
+            CommandHandler(
+                "cancel",
+                cancel_setup,
+            ),
         ],
+
+        allow_reentry=True,
     )
 
-    app.add_handler(setup_handler)
-    app.add_handler(CommandHandler("start", start))
+    application.add_handler(
+        owner_setup_conversation
+    )
 
-    print("Sovereign Business Operator is running...")
-    app.run_polling()
+    # =====================================================
+    # OWNER SETTINGS EDITING
+    # =====================================================
+
+    owner_settings_conversation = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                edit_name_start,
+                pattern=r"^edit_name$",
+            ),
+            CallbackQueryHandler(
+                edit_services_start,
+                pattern=r"^edit_services$",
+            ),
+            CallbackQueryHandler(
+                edit_min_start,
+                pattern=r"^edit_min$",
+            ),
+            CallbackQueryHandler(
+                edit_max_start,
+                pattern=r"^edit_max$",
+            ),
+            CallbackQueryHandler(
+                edit_days_start,
+                pattern=r"^edit_days$",
+            ),
+        ],
+
+        states={
+
+            EDIT_NAME: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_setting_value,
+                )
+            ],
+
+            EDIT_SERVICES: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_setting_value,
+                )
+            ],
+
+            EDIT_MIN_PRICE: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_setting_value,
+                )
+            ],
+
+            EDIT_MAX_PRICE: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_setting_value,
+                )
+            ],
+
+            EDIT_DAYS: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_setting_value,
+                )
+            ],
+        },
+
+        fallbacks=[
+            CommandHandler(
+                "cancel",
+                cancel_setup,
+            ),
+        ],
+
+        allow_reentry=True,
+    )
+
+    application.add_handler(
+        owner_settings_conversation
+    )
+
+    # =====================================================
+    # CLIENT ORDER CONVERSATION
+    # =====================================================
+
+    client_order_conversation = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                new_order_start,
+                pattern=r"^new_order$",
+            ),
+
+            CallbackQueryHandler(
+                edit_order_start,
+                pattern=r"^edit_\d+$",
+            ),
+        ],
+
+        states={
+
+            NAME: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    handle_client_name,
+                )
+            ],
+
+            QUESTION_1: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    handle_intake_answer,
+                )
+            ],
+
+            QUESTION_2: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    handle_intake_answer,
+                )
+            ],
+
+            QUESTION_3: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    handle_intake_answer,
+                )
+            ],
+
+            QUESTION_4: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    handle_intake_answer,
+                )
+            ],
+
+            QUESTION_5: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    handle_intake_answer,
+                )
+            ],
+
+            EDIT_REQUEST: [
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    handle_edit_request,
+                )
+            ],
+        },
+
+        fallbacks=[
+            CommandHandler(
+                "cancel",
+                cancel_intake,
+            ),
+        ],
+
+        allow_reentry=True,
+    )
+
+    application.add_handler(
+        client_order_conversation
+    )
+
+    # =====================================================
+    # /START
+    # =====================================================
+
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start_command,
+        ),
+    )
+
+    # =====================================================
+    # OWNER COMMANDS
+    # =====================================================
+
+    application.add_handler(
+        CommandHandler(
+            "jobs",
+            jobs_command,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "job",
+            job_command,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "pause",
+            pause_command,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "resume",
+            resume_command,
+        )
+    )
+
+    # =====================================================
+    # OWNER BUTTONS
+    # =====================================================
+
+    application.add_handler(
+        CallbackQueryHandler(
+            owner_home,
+            pattern=r"^owner_home$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            settings_menu,
+            pattern=r"^owner_settings$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            jobs_command,
+            pattern=r"^owner_jobs$",
+        )
+    )
+
+    # =====================================================
+    # CLIENT BUTTONS
+    # =====================================================
+
+    application.add_handler(
+        CallbackQueryHandler(
+            client_home,
+            pattern=r"^client_home$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            my_orders,
+            pattern=r"^my_orders$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            order_detail,
+            pattern=r"^order_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            payment_page,
+            pattern=r"^pay_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            confirm_paid,
+            pattern=r"^paid_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            view_proposal,
+            pattern=r"^proposal_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            services_page,
+            pattern=r"^services$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            contact_studio,
+            pattern=r"^contact_studio$",
+        )
+    )
+
+    # =====================================================
+    # TEXT "PAID" FALLBACK
+    # =====================================================
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT
+            & ~filters.COMMAND,
+            handle_paid,
+        )
+    )
+
+    print(
+        "Sovereign Business Operator is running..."
+    )
+
+    application.run_polling()
 
 
 if __name__ == "__main__":
