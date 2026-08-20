@@ -986,12 +986,12 @@ async def estimate_price_with_ai(owner, answers) -> dict | None:
     ) or "- (no answers)"
 
     system = (
-        "You are a commercial pricing assistant for a real "
-        "service business. Recommend a fair project price "
-        "based only on the client requirements and the "
-        "services this business actually offers. "
-        "Never invent services. Stay inside the given "
-        "min/max bounds. Respond with JSON only."
+        "You price real client jobs for a service business. "
+        "Be commercially sensible: a small/simple request "
+        "must be near the minimum of the price band, not "
+        "the middle or maximum. Only large, complex, or "
+        "urgent work approaches the maximum. "
+        "Never invent services. JSON only."
     )
 
     user = f"""
@@ -1000,38 +1000,89 @@ Niche: {niche or "not specified"}
 Services this business offers:
 {services or "not specified"}
 
-Price bounds (USD):
+Owner price band (USD) — hard limits:
 minimum = {minimum}
 maximum = {maximum}
 
 Client requirements:
 {answers_block}
 
-Return ONLY valid JSON with these keys:
+Return ONLY valid JSON:
 {{
   "price": number,
   "complexity": "LOW" | "MEDIUM" | "HIGH",
   "reasoning": "one or two short sentences",
-  "in_scope": ["deliverable or work item", "..."],
-  "out_of_scope": ["item not needed or not offered", "..."]
+  "in_scope": ["..."],
+  "out_of_scope": ["..."]
 }}
 
-Rules:
-- price must be between {minimum} and {maximum}
+Pricing rules (important):
+- price MUST be between {minimum} and {maximum}
+- LOW complexity / small / simple / single item → price
+  near {minimum} (roughly the lower 15–25% of the band)
+- MEDIUM → around the lower half of the band
+- HIGH / large / urgent / multi-part → higher in the band,
+  still at or below {maximum}
+- Do NOT default to the midpoint or the maximum
+- A casual small order must NOT look like a luxury quote
 - in_scope only from client need + offered services
-- out_of_scope = not needed or not offered
-- no markdown, no extra text outside JSON
+- no markdown, no text outside JSON
 """
 
-    def _fallback(reason: str) -> dict:
-        mid = _clamp_price(
-            (minimum + maximum) / 2,
+    def _band_price(complexity: str = "LOW") -> float:
+        """
+        Sensible position in the owner band.
+        Simple jobs stay near minimum — never default to mid.
+        """
+        span = max(maximum - minimum, 0)
+        level = (complexity or "LOW").upper()
+        if level == "HIGH":
+            frac = 0.65
+        elif level == "MEDIUM":
+            frac = 0.30
+        else:
+            frac = 0.12
+        return _clamp_price(
+            minimum + span * frac,
             minimum,
             maximum,
         )
+
+    def _guess_complexity_from_answers() -> str:
+        text = " ".join(
+            clean_text(v) for v in (answers or {}).values()
+        ).lower()
+        high_terms = (
+            "urgent", "asap", "wedding", "corporate",
+            "large", "bulk", "custom design", "multi",
+            "complex", "premium", "hundred", "100+",
+        )
+        med_terms = (
+            "medium", "dozen", "party", "event", "custom",
+        )
+        small_terms = (
+            "small", "simple", "single", "one ", "basic",
+            "mini", "just a", "only",
+        )
+        if any(t in text for t in high_terms):
+            return "HIGH"
+        if any(t in text for t in small_terms) and not any(
+            t in text for t in high_terms
+        ):
+            return "LOW"
+        if any(t in text for t in med_terms):
+            return "MEDIUM"
+        # short sparse answers → treat as simple
+        if len(text) < 80:
+            return "LOW"
+        return "MEDIUM"
+
+    def _fallback(reason: str) -> dict:
+        complexity = _guess_complexity_from_answers()
+        price = _band_price(complexity)
         return {
-            "price": mid,
-            "complexity": "MEDIUM",
+            "price": price,
+            "complexity": complexity,
             "reasoning": reason,
             "in_scope": [],
             "out_of_scope": [],
@@ -1047,8 +1098,8 @@ Rules:
             "(set LLM_API_KEY or GROQ_API_KEY)"
         )
         return _fallback(
-            f"No LLM key configured; used midpoint "
-            f"of owner range ${minimum:.2f}–${maximum:.2f}."
+            f"No LLM key; priced near low end of "
+            f"${minimum:.2f}–${maximum:.2f} from job size."
         )
 
     raw = await llm_chat(system, user, temperature=0.2)
@@ -1058,8 +1109,8 @@ Rules:
             f"(model={model}, base={base_url})"
         )
         return _fallback(
-            f"LLM unavailable; used midpoint "
-            f"of owner range ${minimum:.2f}–${maximum:.2f}."
+            f"LLM unavailable; priced from job size within "
+            f"${minimum:.2f}–${maximum:.2f}."
         )
 
     # Strip markdown fences Groq models sometimes add
@@ -1071,8 +1122,8 @@ Rules:
     if not match:
         print("AI pricing: no JSON object in response:", cleaned[:300])
         return _fallback(
-            f"LLM response unreadable; used midpoint "
-            f"${minimum:.2f}–${maximum:.2f}."
+            f"LLM response unreadable; priced from job size "
+            f"within ${minimum:.2f}–${maximum:.2f}."
         )
 
     try:
@@ -1080,16 +1131,16 @@ Rules:
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         print("AI pricing: JSON parse failed:", exc, cleaned[:300])
         return _fallback(
-            f"LLM JSON parse failed; used midpoint "
-            f"${minimum:.2f}–${maximum:.2f}."
+            f"LLM JSON parse failed; priced from job size "
+            f"within ${minimum:.2f}–${maximum:.2f}."
         )
 
     price = safe_float(data.get("price"), 0)
     if price <= 0:
         print("AI pricing: invalid price in JSON:", data)
         return _fallback(
-            f"LLM returned invalid price; used midpoint "
-            f"${minimum:.2f}–${maximum:.2f}."
+            f"LLM returned invalid price; priced from job size "
+            f"within ${minimum:.2f}–${maximum:.2f}."
         )
 
     price = _clamp_price(price, minimum, maximum)

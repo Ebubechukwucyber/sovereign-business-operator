@@ -663,10 +663,11 @@ def calculate_business_price(
     rules.setdefault("model", "fixed")
     rules.setdefault("minimum", min_price)
     rules.setdefault("maximum", max_price)
-    # Fixed model needs a base_fee — use midpoint of band
+    # Fixed model needs a base_fee — near minimum, not midpoint
     if safe_float(rules.get("base_fee"), 0) <= 0:
+        span = max(max_price - min_price, 0)
         rules["base_fee"] = round(
-            (min_price + max_price) / 2,
+            min_price + span * 0.12,
             2,
         )
 
@@ -737,21 +738,32 @@ def calculate_business_price(
             },
         )
 
-    # Last resort: never block the client with price 0
-    fallback = round((min_price + max_price) / 2, 2)
+    # Last resort: never block the client with price 0.
+    # Stay near the low end of the band for typical jobs.
+    complexity = str(
+        analysis.get("complexity", "NORMAL")
+    ).upper()
+    span = max(max_price - min_price, 0)
+    if complexity == "HIGH":
+        frac = 0.65
+    elif complexity in ("MEDIUM", "MED"):
+        frac = 0.30
+    else:
+        frac = 0.12
+    fallback = round(min_price + span * frac, 2)
     return (
         fallback,
         {
             **analysis,
             "pricing_error": result.get(
                 "reason",
-                "Used owner min/max midpoint fallback.",
+                "Used owner band with job-size heuristic.",
             ),
             "pricing_result": result,
             "pricing_source": "min_max_fallback",
             "cushion_applied": analysis.get(
                 "cushion_applied",
-                "min_max_midpoint",
+                "band_heuristic",
             ),
         },
     )
@@ -1221,15 +1233,16 @@ async def finish_intake(
             min_price = 150.0
         if max_price < min_price:
             max_price = min_price
-        price = round((min_price + max_price) / 2, 2)
+        span = max(max_price - min_price, 0)
+        price = round(min_price + span * 0.12, 2)
         analysis = analysis or {}
         analysis["pricing_source"] = "min_max_fallback"
         analysis["internal_analysis"] = (
             analysis.get("internal_analysis")
-            or "Quoted at the midpoint of the studio price range."
+            or "Quoted near the low end of the studio price range."
         )
-        analysis.setdefault("complexity", "MEDIUM")
-        analysis.setdefault("cushion_applied", "min_max_midpoint")
+        analysis.setdefault("complexity", "LOW")
+        analysis.setdefault("cushion_applied", "band_low")
 
     # -----------------------------------------------------
     # GENERATE PROPOSAL
@@ -1597,13 +1610,13 @@ async def handle_edit_request(
             min_price = 150.0
         if max_price < min_price:
             max_price = min_price
-        price = round((min_price + max_price) / 2, 2)
+        price = round(min_price + max(max_price - min_price, 0) * 0.12, 2)
         analysis = analysis or {}
         analysis["pricing_source"] = "min_max_fallback"
         analysis.setdefault("complexity", "MEDIUM")
         analysis.setdefault(
             "internal_analysis",
-            "Revised quote at the midpoint of the studio price range.",
+            "Revised quote near the low end of the studio price range.",
         )
 
     # -----------------------------------------------------
