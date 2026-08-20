@@ -1926,13 +1926,54 @@ async def view_proposal(
 # PAYMENT PAGE
 # =========================================================
 
+async def _send_callback_text(
+    query,
+    text,
+    reply_markup=None,
+    parse_mode=None,
+    prefer_new_message=False,
+):
+    """
+    Buttons are often on a PDF document message.
+    Prefer a new reply for payment flows so clicks always
+    produce visible UI. Fallbacks: edit text, edit caption.
+    """
+
+    kwargs = {}
+    if reply_markup is not None:
+        kwargs["reply_markup"] = reply_markup
+    if parse_mode is not None:
+        kwargs["parse_mode"] = parse_mode
+
+    if prefer_new_message:
+        try:
+            await query.message.reply_text(text, **kwargs)
+            return
+        except Exception:
+            pass
+
+    try:
+        await query.edit_message_text(text, **kwargs)
+        return
+    except Exception:
+        pass
+
+    try:
+        await query.edit_message_caption(caption=text, **kwargs)
+        return
+    except Exception:
+        pass
+
+    await query.message.reply_text(text, **kwargs)
+
+
 async def payment_page(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
     query = update.callback_query
 
-    await query.answer()
+    await query.answer("Opening payment…")
 
     match = re.match(
         r"^pay_(\d+)$",
@@ -1951,10 +1992,11 @@ async def payment_page(
     )
 
     if not job:
-        await query.edit_message_text(
-            "Project not found."
+        await _send_callback_text(
+            query,
+            "Project not found.",
+            prefer_new_message=True,
         )
-
         return
 
     from config import OWNER_TELEGRAM_ID
@@ -1964,10 +2006,11 @@ async def payment_page(
     )
 
     if not owner:
-        await query.edit_message_text(
-            "Payment information is unavailable."
+        await _send_callback_text(
+            query,
+            "Payment information is unavailable.",
+            prefer_new_message=True,
         )
-
         return
 
     address = clean_text(
@@ -1985,7 +2028,6 @@ async def payment_page(
         )
     )
 
-    # Prefer configured network/token; fall back to Base Sepolia defaults
     network = clean_text(
         row_get(
             owner,
@@ -2002,8 +2044,6 @@ async def payment_page(
         )
     ) or "USDC"
 
-    # Persist payment instructions for this job so verification
-    # later has a reliable expected amount, address, etc.
     try:
         set_payment_details(
             job_id,
@@ -2015,6 +2055,8 @@ async def payment_page(
     except Exception:
         pass
 
+    # Plain text only — no Markdown. Wallet addresses break
+    # Markdown and silent parse errors look like "button does nothing".
     text = (
         f"💳 Payment — Project #{job_id}\n\n"
         f"Amount: ${price:,.2f} USD\n"
@@ -2024,26 +2066,24 @@ async def payment_page(
 
     if address:
         text += (
-            "Send the exact amount to the wallet below:\n\n"
-            f"`{address}`\n\n"
-            "⚠️ Only send the selected token on the "
-            "specified network.\n\n"
+            "Send the exact amount to this wallet:\n\n"
+            f"{address}\n\n"
+            "Only send the selected token on the specified network.\n\n"
         )
     else:
         text += (
-            "⚠️ The studio has not configured a payment "
-            "wallet yet.\n\n"
+            "The studio has not configured a payment wallet yet.\n\n"
         )
 
     text += (
-        "After sending the payment, press "
-        "\"I've Paid\" and provide the transaction hash "
-        "when requested."
+        "After sending payment, press \"I've Paid\" "
+        "and paste the transaction hash when asked."
     )
 
-    await query.edit_message_text(
+    await _send_callback_text(
+        query,
         text,
-        parse_mode="Markdown",
+        prefer_new_message=True,
         reply_markup=InlineKeyboardMarkup(
             [
                 [
@@ -2092,20 +2132,25 @@ async def confirm_paid(
     )
 
     if not job:
-        await query.edit_message_text(
-            "Project not found."
+        await _send_callback_text(
+            query,
+            "Project not found.",
+            prefer_new_message=True,
         )
-
         return
 
     context.user_data["payment_job_id"] = job_id
 
-    await query.edit_message_text(
-        f"Payment for Project #{job_id}\n\n"
-        "Please send the transaction hash (TX hash) "
-        "of the USDC payment.\n\n"
-        "We will use it to verify the transaction "
-        "on the network."
+    await _send_callback_text(
+        query,
+        (
+            f"Payment for Project #{job_id}\n\n"
+            "Please send the transaction hash (TX hash) "
+            "of the USDC payment.\n\n"
+            "We will use it to verify the transaction "
+            "on the network."
+        ),
+        prefer_new_message=True,
     )
 
 
