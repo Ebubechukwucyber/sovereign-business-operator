@@ -208,9 +208,9 @@ Open the bot in Telegram and send `/start`.
 |----------|----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | From BotFather |
 | `OWNER_TELEGRAM_ID` | Yes | Numeric Telegram user id of the studio owner |
-| `LLM_API_KEY` | Recommended | Provider key for AI pricing & proposals |
-| `LLM_BASE_URL` | Recommended | OpenAI-compatible base URL |
-| `LLM_MODEL` | Recommended | Model name |
+| `LLM_API_KEY` | Yes | Provider key for AI pricing & proposals |
+| `LLM_BASE_URL` | Yes | OpenAI-compatible base URL |
+| `LLM_MODEL` | Yes | Model name |
 | `BASE_CHAIN_ID` | No | Default `8453` (Base mainnet) |
 | `BASE_RPC_URL` | No | Default `https://mainnet.base.org` |
 | `BASE_USDC_CONTRACT` | No | Default Circle USDC on Base: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
@@ -221,7 +221,6 @@ Open the bot in Telegram and send `/start`.
 | `PAYMENT_MAX_AGE_SECONDS` | No | Max age of a TX (anti-replay) |
 | `DATABASE_PATH` | No | SQLite path |
 
-Legacy `BASE_SEPOLIA_*` env names still work as aliases.
 
 **Owner wallet:** configure a **Base mainnet** address that can receive USDC (bot → Payments). This is separate from the USDC token contract.
 
