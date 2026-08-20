@@ -57,120 +57,88 @@ DATABASE_PATH = os.getenv(
 
 
 # =========================================================
-# BASE SEPOLIA / USDC TESTNET
+# BASE + USDC PAYMENT NETWORK
 # =========================================================
 #
-# DEVELOPMENT NETWORK
+# Default: Base MAINNET (required for production / hackathon
+# mainnet submissions).
 #
-# We are testing payments on Base Sepolia first.
+# Base mainnet chain id: 8453
+# Official Circle USDC on Base:
+#   0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 #
-# Base Sepolia:
-# Chain ID = 84532
+# Optional testnet: set env to Sepolia values
+# (chain 84532, sepolia RPC, sepolia USDC).
 #
-# DO NOT use the production Base network while testing.
+# The owner's RECEIVING WALLET is stored in the database
+# (Payments settings). It is NOT the USDC contract below.
 #
 
-
-BASE_SEPOLIA_CHAIN_ID = int(
+BASE_CHAIN_ID = int(
     os.getenv(
-        "BASE_SEPOLIA_CHAIN_ID",
-        "84532",
+        "BASE_CHAIN_ID",
+        os.getenv("BASE_SEPOLIA_CHAIN_ID", "8453"),
     )
 )
 
-
-# =========================================================
-# BASE SEPOLIA RPC
-# =========================================================
-#
-# Default Base Sepolia public RPC.
-#
-# You can replace this in .env with another RPC provider
-# later if needed.
-#
-
-BASE_SEPOLIA_RPC_URL = os.getenv(
-    "BASE_SEPOLIA_RPC_URL",
-    "https://sepolia.base.org",
+BASE_RPC_URL = os.getenv(
+    "BASE_RPC_URL",
+    os.getenv(
+        "BASE_SEPOLIA_RPC_URL",
+        "https://mainnet.base.org",
+    ),
 ).strip()
 
-
-# =========================================================
-# USDC CONTRACT
-# =========================================================
-#
-# IMPORTANT:
-#
-# This MUST be the USDC TOKEN CONTRACT on Base Sepolia.
-#
-# It is NOT the business owner's receiving wallet.
-#
-# The owner's receiving wallet is stored separately in the
-# database as the business payment wallet.
-#
-# Put the correct Base Sepolia USDC contract in .env:
-#
-# BASE_SEPOLIA_USDC_CONTRACT=...
-#
-# We deliberately do not hard-code an unknown contract
-# address here.
-#
-
-BASE_SEPOLIA_USDC_CONTRACT = os.getenv(
-    "BASE_SEPOLIA_USDC_CONTRACT",
-    "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+# Circle native USDC on Base mainnet
+BASE_USDC_CONTRACT = os.getenv(
+    "BASE_USDC_CONTRACT",
+    os.getenv(
+        "BASE_SEPOLIA_USDC_CONTRACT",
+        "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    ),
 ).strip()
 
+BASE_CONFIRMATIONS = int(
+    os.getenv(
+        "BASE_CONFIRMATIONS",
+        os.getenv("BASE_SEPOLIA_CONFIRMATIONS", "3"),
+    )
+)
+
+BASE_EXPLORER_URL = os.getenv(
+    "BASE_EXPLORER_URL",
+    os.getenv(
+        "BASE_SEPOLIA_EXPLORER_URL",
+        "https://basescan.org",
+    ),
+).strip()
+
+# Back-compat aliases used by payment_verifier.py
+BASE_SEPOLIA_CHAIN_ID = BASE_CHAIN_ID
+BASE_SEPOLIA_RPC_URL = BASE_RPC_URL
+BASE_SEPOLIA_USDC_CONTRACT = BASE_USDC_CONTRACT
+BASE_SEPOLIA_CONFIRMATIONS = BASE_CONFIRMATIONS
+BASE_SEPOLIA_EXPLORER_URL = BASE_EXPLORER_URL
+
 
 # =========================================================
-# PAYMENT NETWORK
+# PAYMENT NETWORK (client-facing label)
 # =========================================================
-#
-# This is what the client sees on the payment page.
-#
 
 PAYMENT_NETWORK = os.getenv(
     "PAYMENT_NETWORK",
-    "Base Sepolia",
+    "Base",
 ).strip()
 
 
 # =========================================================
 # PAYMENT TOKEN
 # =========================================================
-#
 
 PAYMENT_TOKEN = os.getenv(
     "PAYMENT_TOKEN",
     "USDC",
 ).strip()
-
-
-# =========================================================
-# REQUIRED CONFIRMATIONS
-# =========================================================
-#
-# During testing we require 2 confirmations.
-#
-# Example:
-#
-# Transaction is included in block 100.
-# Latest block is 101.
-#
-# confirmations =
-# 101 - 100 + 1
-# = 2
-#
-# Once the required number is reached, the payment can
-# be considered confirmed.
-#
-
-BASE_SEPOLIA_CONFIRMATIONS = int(
-    os.getenv(
-        "BASE_SEPOLIA_CONFIRMATIONS",
-        "2",
-    )
-)
 
 
 # Maximum age of a payment transaction, in seconds.
@@ -266,22 +234,6 @@ PAYMENT_RECEIPT_PREFIX = os.getenv(
 
 
 # =========================================================
-# BLOCKCHAIN EXPLORER
-# =========================================================
-#
-# Base Sepolia explorer.
-#
-# This is useful for putting a clickable transaction link
-# inside the receipt.
-#
-
-BASE_SEPOLIA_EXPLORER_URL = os.getenv(
-    "BASE_SEPOLIA_EXPLORER_URL",
-    "https://sepolia.basescan.org",
-).strip()
-
-
-# =========================================================
 # APPLICATION
 # =========================================================
 
@@ -332,20 +284,20 @@ def validate_payment_config():
 
     errors = []
 
-    if BASE_SEPOLIA_CHAIN_ID != 84532:
+    if BASE_CHAIN_ID not in (8453, 84532):
         errors.append(
-            "BASE_SEPOLIA_CHAIN_ID must be 84532 "
-            "while using Base Sepolia."
+            "BASE_CHAIN_ID must be 8453 (Base mainnet) "
+            "or 84532 (Base Sepolia)."
         )
 
-    if not BASE_SEPOLIA_RPC_URL:
+    if not BASE_RPC_URL:
         errors.append(
-            "BASE_SEPOLIA_RPC_URL is not configured."
+            "BASE_RPC_URL is not configured."
         )
 
-    if not BASE_SEPOLIA_USDC_CONTRACT:
+    if not BASE_USDC_CONTRACT:
         errors.append(
-            "BASE_SEPOLIA_USDC_CONTRACT is not configured."
+            "BASE_USDC_CONTRACT is not configured."
         )
 
     if not PAYMENT_NETWORK:
@@ -358,9 +310,9 @@ def validate_payment_config():
             "PAYMENT_TOKEN is not configured."
         )
 
-    if BASE_SEPOLIA_CONFIRMATIONS < 1:
+    if BASE_CONFIRMATIONS < 1:
         errors.append(
-            "BASE_SEPOLIA_CONFIRMATIONS must be at least 1."
+            "BASE_CONFIRMATIONS must be at least 1."
         )
 
     return errors

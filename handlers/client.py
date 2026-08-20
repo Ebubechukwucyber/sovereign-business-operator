@@ -2144,13 +2144,15 @@ async def payment_page(
         )
     )
 
+    from config import PAYMENT_NETWORK as DEFAULT_PAYMENT_NETWORK
+
     network = clean_text(
         row_get(
             owner,
             "payment_network",
-            "Base Sepolia",
+            DEFAULT_PAYMENT_NETWORK,
         )
-    ) or "Base Sepolia"
+    ) or DEFAULT_PAYMENT_NETWORK
 
     token = clean_text(
         row_get(
@@ -2171,19 +2173,28 @@ async def payment_page(
     except Exception:
         pass
 
-    # Plain text only — no Markdown. Wallet addresses break
-    # Markdown and silent parse errors look like "button does nothing".
+    # HTML <code> makes the wallet one-tap copy on Telegram.
+    # Escape user-controlled strings; leave the address in <code>.
+    def _html(value: str) -> str:
+        return (
+            str(value)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+
     text = (
         f"💳 Payment — Project #{job_id}\n\n"
-        f"Amount: ${price:,.2f} USD\n"
-        f"Network: {network}\n"
-        f"Token: {token}\n\n"
+        f"Amount: <b>${price:,.2f} USD</b>\n"
+        f"Network: {_html(network)}\n"
+        f"Token: {_html(token)}\n\n"
     )
 
     if address:
         text += (
-            "Send the exact amount to this wallet:\n\n"
-            f"{address}\n\n"
+            "Send the exact amount to this wallet:\n"
+            "(tap the address to copy)\n\n"
+            f"<code>{_html(address)}</code>\n\n"
             "Only send the selected token on the specified network.\n\n"
         )
     else:
@@ -2200,6 +2211,7 @@ async def payment_page(
         query,
         text,
         prefer_new_message=True,
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
             [
                 [
@@ -2434,7 +2446,7 @@ async def handle_paid(
                 expected_amount,
                 payment_network=details.get(
                     "payment_network",
-                    "Base Sepolia",
+                    "Base",
                 ),
                 payment_token=details.get(
                     "payment_token",
@@ -2484,7 +2496,7 @@ async def handle_paid(
                 if len(project_title) > 80:
                     project_title = project_title[:77] + "..."
 
-                network = details.get("payment_network", "Base Sepolia")
+                network = details.get("payment_network", "Base")
                 token = details.get("payment_token", "USDC")
                 block_number = result.get("block_number") or ""
                 paid_recipient = result.get("recipient") or recipient
@@ -2597,7 +2609,7 @@ async def handle_paid(
         await update.message.reply_text(
             "Payment was not accepted.\n\n"
             f"{reason}\n\n"
-            "Send a fresh USDC transfer on Base Sepolia "
+            "Send a fresh USDC transfer on Base "
             "for this project, then submit the new TX hash."
         )
 
