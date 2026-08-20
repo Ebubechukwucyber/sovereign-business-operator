@@ -44,6 +44,7 @@ from db import (
 from ai import (
     generate_proposal,
     template_proposal,
+    estimate_price_with_ai,
 )
 
 from payment_verifier import verify_usdc_payment
@@ -81,28 +82,31 @@ QUESTION_STATES = [
 GENERIC_QUESTIONS = [
     (
         "project",
-        "What do you need us to do for you?\n\n"
-        "Please describe the project or service in your own words.",
+        "Thanks — let's get a clear picture of the work.\n\n"
+        "In your own words, what do you need done?",
     ),
     (
         "requirements",
-        "What are the main things you want included?",
+        "Got it.\n\n"
+        "What matters most for a good result? "
+        "Any must-haves we should include?",
     ),
     (
         "quantity",
-        "How much work is involved?\n\n"
-        "For example: number of items, locations, people, "
-        "hours, pages, products, deliverables, or anything "
-        "else that helps us understand the size of the job.",
+        "Helpful.\n\n"
+        "About how large is this? "
+        "(items, people, hours, pages, locations, "
+        "or whatever measures size for this job)",
     ),
     (
         "deadline",
-        "When would you like the work completed?",
+        "When would you like this completed?",
     ),
     (
         "additional",
-        "Is there anything else we should know before preparing "
-        "your quote?",
+        "Almost done.\n\n"
+        "Anything else we should know before we prepare "
+        "your quote and proposal?",
     ),
 ]
 
@@ -1125,16 +1129,55 @@ async def finish_intake(
         answers,
     )
 
-    price, analysis = calculate_business_price(
+    await update.message.reply_text(
+        "Thanks — reviewing your requirements and "
+        "preparing a tailored quote and proposal."
+    )
+
+    # Prefer AI estimate (clamped to owner min/max).
+    # Fall back to the existing rule engine so jobs never break.
+    ai_estimate = await estimate_price_with_ai(
         owner,
         answers,
     )
 
+    if ai_estimate and ai_estimate.get("price", 0) > 0:
+        price = float(ai_estimate["price"])
+        analysis = {
+            "complexity": ai_estimate.get(
+                "complexity",
+                "MEDIUM",
+            ),
+            "cushion_applied": "ai_estimate",
+            "internal_analysis": ai_estimate.get(
+                "reasoning",
+                "AI-assisted price within owner bounds.",
+            ),
+            "in_scope": ai_estimate.get("in_scope", []),
+            "out_of_scope": ai_estimate.get(
+                "out_of_scope",
+                [],
+            ),
+            "pricing_source": "ai",
+        }
+    else:
+        price, analysis = calculate_business_price(
+            owner,
+            answers,
+        )
+        analysis["pricing_source"] = "rules"
+
     save_job_analysis(
         job_id,
-        complexity=analysis["complexity"],
-        cushion_applied=analysis["cushion_applied"],
-        internal_analysis=analysis["internal_analysis"],
+        complexity=analysis.get("complexity", "MEDIUM"),
+        cushion_applied=analysis.get(
+            "cushion_applied",
+            "",
+        ),
+        internal_analysis=analysis.get(
+            "internal_analysis",
+            "",
+        ),
     )
 
     if price <= 0:
@@ -1155,6 +1198,7 @@ async def finish_intake(
             owner,
             answers,
             price,
+            analysis=analysis,
         )
     except Exception:
         proposal = template_proposal(
@@ -1453,19 +1497,51 @@ async def handle_edit_request(
         return ConversationHandler.END
 
     # -----------------------------------------------------
-    # REPRICE
+    # REPRICE (AI first, rules fallback — same job path)
     # -----------------------------------------------------
 
-    price, analysis = calculate_business_price(
+    ai_estimate = await estimate_price_with_ai(
         owner,
         answers,
     )
 
+    if ai_estimate and ai_estimate.get("price", 0) > 0:
+        price = float(ai_estimate["price"])
+        analysis = {
+            "complexity": ai_estimate.get(
+                "complexity",
+                "MEDIUM",
+            ),
+            "cushion_applied": "ai_estimate",
+            "internal_analysis": ai_estimate.get(
+                "reasoning",
+                "AI-assisted revised price within owner bounds.",
+            ),
+            "in_scope": ai_estimate.get("in_scope", []),
+            "out_of_scope": ai_estimate.get(
+                "out_of_scope",
+                [],
+            ),
+            "pricing_source": "ai",
+        }
+    else:
+        price, analysis = calculate_business_price(
+            owner,
+            answers,
+        )
+        analysis["pricing_source"] = "rules"
+
     save_job_analysis(
         job_id,
-        complexity=analysis["complexity"],
-        cushion_applied=analysis["cushion_applied"],
-        internal_analysis=analysis["internal_analysis"],
+        complexity=analysis.get("complexity", "MEDIUM"),
+        cushion_applied=analysis.get(
+            "cushion_applied",
+            "",
+        ),
+        internal_analysis=analysis.get(
+            "internal_analysis",
+            "",
+        ),
     )
 
     if price <= 0:
@@ -1486,6 +1562,7 @@ async def handle_edit_request(
             owner,
             answers,
             price,
+            analysis=analysis,
         )
     except Exception:
         proposal = template_proposal(

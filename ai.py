@@ -828,259 +828,349 @@ def template_proposal(
 
 
 # =========================================================
-# OPTIONAL AI PROVIDER
+# LLM HELPERS (config-driven, safe fallbacks)
+# =========================================================
+
+def _llm_config():
+    """
+    Prefer project config env vars; fall back to OPENAI_* names.
+    """
+    api_key = (
+        os.getenv("LLM_API_KEY", "").strip()
+        or os.getenv("OPENAI_API_KEY", "").strip()
+    )
+    base_url = (
+        os.getenv("LLM_BASE_URL", "").strip()
+        or "https://api.openai.com/v1"
+    ).rstrip("/")
+    model = (
+        os.getenv("LLM_MODEL", "").strip()
+        or os.getenv("OPENAI_MODEL", "").strip()
+        or "llama-3.1-8b-instant"
+    )
+    return api_key, base_url, model
+
+
+async def llm_chat(
+    system: str,
+    user: str,
+    temperature: float = 0.3,
+) -> str:
+    """
+    Minimal OpenAI-compatible chat completion via httpx.
+    Returns empty string on any failure.
+    """
+    api_key, base_url, model = _llm_config()
+    if not api_key:
+        return ""
+
+    try:
+        import httpx
+    except ImportError:
+        return ""
+
+    payload = {
+        "model": model,
+        "temperature": temperature,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+
+        message = choices[0].get("message") or {}
+        return clean_text(message.get("content", ""))
+    except Exception:
+        return ""
+
+
+def _owner_price_bounds(owner) -> tuple[float, float]:
+    rules = get_business_rules(owner)
+    minimum = safe_float(
+        get_value(
+            owner,
+            "min_price",
+            rules.get("min_price", 150),
+        ),
+        150,
+    )
+    maximum = safe_float(
+        get_value(
+            owner,
+            "max_price",
+            rules.get("max_price", 400),
+        ),
+        400,
+    )
+    if minimum <= 0:
+        minimum = 150.0
+    if maximum < minimum:
+        maximum = minimum
+    return minimum, maximum
+
+
+def _clamp_price(value: float, minimum: float, maximum: float) -> float:
+    return round(min(max(float(value), minimum), maximum), 2)
+
+
+async def estimate_price_with_ai(owner, answers) -> dict | None:
+    """
+    AI suggests a price from requirements, then we clamp to
+    owner min/max. Returns None on failure so callers keep
+    using the deterministic rule engine.
+    """
+    minimum, maximum = _owner_price_bounds(owner)
+    business_name = clean_text(
+        get_value(owner, "name", "Studio")
+    )
+    niche = clean_text(get_value(owner, "niche", ""))
+    services = clean_text(
+        get_value(owner, "services_text", "")
+    )
+    answers = answers or {}
+
+    answers_block = "\n".join(
+        f"- {key}: {clean_text(value)}"
+        for key, value in answers.items()
+        if clean_text(value)
+    ) or "- (no answers)"
+
+    system = (
+        "You are a commercial pricing assistant for a real "
+        "service business. Recommend a fair project price "
+        "based only on the client requirements and the "
+        "services this business actually offers. "
+        "Never invent services. Stay inside the given "
+        "min/max bounds. Respond with JSON only."
+    )
+
+    user = f"""
+Business: {business_name}
+Niche: {niche or "not specified"}
+Services this business offers:
+{services or "not specified"}
+
+Price bounds (USD):
+minimum = {minimum}
+maximum = {maximum}
+
+Client requirements:
+{answers_block}
+
+Return ONLY valid JSON with these keys:
+{{
+  "price": number,
+  "complexity": "LOW" | "MEDIUM" | "HIGH",
+  "reasoning": "one or two short sentences",
+  "in_scope": ["deliverable or work item", "..."],
+  "out_of_scope": ["item not needed or not offered", "..."]
+}}
+
+Rules:
+- price must be between {minimum} and {maximum}
+- in_scope only from client need + offered services
+- out_of_scope = not needed or not offered
+- no markdown, no extra text outside JSON
+"""
+
+    raw = await llm_chat(system, user, temperature=0.2)
+    if not raw:
+        return None
+
+    # Extract JSON object even if model wraps it
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if not match:
+        return None
+
+    try:
+        data = json.loads(match.group(0))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+    price = safe_float(data.get("price"), 0)
+    if price <= 0:
+        return None
+
+    price = _clamp_price(price, minimum, maximum)
+
+    complexity = clean_text(
+        data.get("complexity", "MEDIUM")
+    ).upper()
+    if complexity not in ("LOW", "MEDIUM", "HIGH"):
+        complexity = "MEDIUM"
+
+    in_scope = data.get("in_scope") or []
+    out_of_scope = data.get("out_of_scope") or []
+    if not isinstance(in_scope, list):
+        in_scope = [str(in_scope)]
+    if not isinstance(out_of_scope, list):
+        out_of_scope = [str(out_of_scope)]
+
+    reasoning = clean_text(
+        data.get("reasoning", "")
+    ) or (
+        f"AI estimate clamped to owner bounds "
+        f"({minimum:.2f}–{maximum:.2f})."
+    )
+
+    return {
+        "price": price,
+        "complexity": complexity,
+        "reasoning": reasoning,
+        "in_scope": [clean_text(x) for x in in_scope if clean_text(x)],
+        "out_of_scope": [
+            clean_text(x) for x in out_of_scope if clean_text(x)
+        ],
+        "min_price": minimum,
+        "max_price": maximum,
+    }
+
+
+# =========================================================
+# OPTIONAL AI PROVIDER — PROPOSAL
 # =========================================================
 
 async def generate_proposal(
     owner,
     answers,
     price,
+    analysis=None,
 ):
     """
-    Generate a professional proposal using OpenAI.
+    Generate a scoped, business-fit proposal via LLM.
 
-    If no provider is configured or the provider fails,
-    return the deterministic proposal template.
+    Falls back to template_proposal if no key / failure.
+    Never changes the approved price.
     """
 
-    api_key = os.getenv(
-        "OPENAI_API_KEY"
-    )
-
-    if not api_key:
-
-        return template_proposal(
-            owner,
-            answers,
-            price,
-        )
-
-    try:
-
-        from openai import AsyncOpenAI
-
-    except ImportError:
-
-        return template_proposal(
-            owner,
-            answers,
-            price,
-        )
+    analysis = analysis or {}
 
     business_name = clean_text(
-        get_value(
-            owner,
-            "name",
-            "Business",
-        )
+        get_value(owner, "name", "Business")
     )
-
+    niche = clean_text(get_value(owner, "niche", ""))
     services = clean_text(
-        get_value(
-            owner,
-            "services_text",
-            "",
-        )
+        get_value(owner, "services_text", "")
     )
 
     project = proposal_value(
-        answers,
-        "project",
-        "Not specified.",
+        answers, "project", "Not specified."
     )
-
     requirements = proposal_value(
-        answers,
-        "requirements",
-        "Not specified.",
+        answers, "requirements", "Not specified."
     )
-
     quantity = proposal_value(
-        answers,
-        "quantity",
-        "Not specified.",
+        answers, "quantity", "Not specified."
     )
-
     deadline = proposal_value(
-        answers,
-        "deadline",
-        "Not specified.",
+        answers, "deadline", "Not specified."
     )
-
     additional = proposal_value(
-        answers,
-        "additional",
-        "None provided.",
+        answers, "additional", "None provided."
     )
-
     revision = clean_text(
-        answers.get(
-            "client_revision_request",
-            "",
-        )
+        answers.get("client_revision_request", "")
     )
 
-    prompt = f"""
-You are a professional business proposal writer.
+    in_scope = analysis.get("in_scope") or []
+    out_of_scope = analysis.get("out_of_scope") or []
+    reasoning = clean_text(
+        analysis.get("internal_analysis", "")
+    )
 
-Create a polished proposal for a real client.
+    in_scope_text = (
+        "\n".join(f"- {item}" for item in in_scope)
+        if in_scope
+        else "- (derive carefully from client needs + offered services)"
+    )
+    out_scope_text = (
+        "\n".join(f"- {item}" for item in out_of_scope)
+        if out_of_scope
+        else "- Work outside the agreed scope"
+    )
 
-BUSINESS INFORMATION
-Business name:
-{business_name}
+    system = (
+        "You write professional service-business proposals. "
+        "Scope tightly to what the client needs and what this "
+        "business actually offers. Never invent capabilities, "
+        "volumes, dates, or deliverables. Never change the price."
+    )
 
-Services offered by the business:
-{services}
+    user = f"""
+Create a polished client proposal.
 
-CLIENT PROJECT INFORMATION
-Project/service requested:
-{project}
+BUSINESS
+Name: {business_name}
+Niche: {niche or "not specified"}
+Services offered:
+{services or "not specified"}
 
-Main requirements:
-{requirements}
+CLIENT REQUEST
+Project: {project}
+Requirements: {requirements}
+Size / quantity: {quantity}
+Deadline: {deadline}
+Additional: {additional}
+Revision notes: {revision or "None"}
 
-Quantity / project size:
-{quantity}
+PRICING GUIDANCE (internal — do not over-explain)
+{reasoning or "Price set within owner commercial bounds."}
 
-Requested deadline:
-{deadline}
+SUGGESTED IN-SCOPE
+{in_scope_text}
 
-Additional information:
-{additional}
+SUGGESTED OUT-OF-SCOPE
+{out_scope_text}
 
-Client revision request:
-{revision or "None"}
-
-APPROVED PROJECT INVESTMENT
+APPROVED INVESTMENT (exact — do not change)
 ${float(price):.2f} USD
 
-IMPORTANT RULES
+RULES
+1. Use only information above.
+2. Optimize for a real business fit: include what is needed,
+   exclude what is not needed or not offered.
+3. Do not invent numbers, menus, tech stacks, team size, or dates.
+4. If a detail is missing, say it will be confirmed — do not invent it.
+5. Price must appear as exactly ${float(price):.2f} USD.
+6. Professional, clear language a client can approve.
 
-1. Use ONLY information provided above.
-2. Do NOT invent guest numbers, menu items, food types,
-   venues, locations, equipment, staffing, delivery charges,
-   technical specifications, materials, dates or deliverables.
-3. Do not assume something simply because it is common for
-   this type of project.
-4. If an important detail was not provided, describe it as
-   something to be confirmed rather than inventing it.
-5. The approved project investment is exactly:
-   ${float(price):.2f} USD.
-6. Never change the price.
-7. Never create a different currency.
-8. Do not describe optional services as included.
-9. Make the proposal specific to the client's actual request.
-10. Do not simply repeat the client's first sentence in every
-    section.
-11. Write in professional business language.
-12. Keep the proposal clear enough for a client to approve.
-
-PROPOSAL STRUCTURE
-
-Use these exact headings:
+Use these headings exactly:
 
 Executive Summary
-
 Project Scope
-
 Client Requirements
-
 Included Services & Deliverables
-
+Out of Scope
+Why This Fits
 Timeline
-
 Project Investment
-
-Exclusions
-
 Client Responsibilities
-
 Payment Terms
-
 Next Steps
-
-CONTENT GUIDANCE
-
-Executive Summary:
-Briefly explain what the client is asking the business to
-provide and the purpose of the proposal.
-
-Project Scope:
-Translate the client's request into a clear description of
-the work. Do not invent details.
-
-Client Requirements:
-Summarize the actual requirements supplied by the client.
-
-Included Services & Deliverables:
-Describe only what can reasonably be included from the supplied
-information. If a specific deliverable has not been confirmed,
-say it will be confirmed rather than inventing it.
-
-Timeline:
-Use the requested deadline exactly when supplied. Do not
-invent a different date. If the client gave a relative timeline,
-preserve it accurately.
-
-Project Investment:
-State exactly:
-${float(price):.2f} USD
-
-Exclusions:
-State that work outside the agreed scope and unapproved
-additional services are excluded.
-
-Client Responsibilities:
-Explain that the client must provide accurate information,
-requirements, approvals and other necessary information.
-
-Payment Terms:
-State that work begins after payment has been verified through
-the business's approved payment process.
-
-Next Steps:
-Tell the client to review, approve, complete payment and then
-proceed with the project.
 
 Return ONLY the proposal text.
 """
 
-    try:
+    text = await llm_chat(system, user, temperature=0.35)
 
-        client = AsyncOpenAI(
-            api_key=api_key
-        )
+    if not text:
+        return template_proposal(owner, answers, price)
 
-        response = await client.responses.create(
-            model=os.getenv(
-                "OPENAI_MODEL",
-                "gpt-5-mini",
-            ),
-            input=prompt,
-        )
-
-        text = clean_text(
-            getattr(
-                response,
-                "output_text",
-                "",
-            )
-        )
-
-        if not text:
-
-            return template_proposal(
-                owner,
-                answers,
-                price,
-            )
-
-        return text
-
-    except Exception:
-
-        return template_proposal(
-            owner,
-            answers,
-            price,
-        )
+    return text
