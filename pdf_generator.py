@@ -5,7 +5,7 @@ import re
 
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
@@ -1809,3 +1809,550 @@ def _extract_project_title(
             return clean
 
     return ""
+
+# =========================================================
+# PROFESSIONAL INVOICE PDF
+# =========================================================
+
+def create_invoice_pdf(
+    studio_name: str,
+    client_name: str,
+    job_id,
+    amount,
+    currency: str = "USDC",
+    network: str = "Base Sepolia",
+    token: str = "USDC",
+    tx_hash: str = "",
+    block_number: str = "",
+    confirmations: str = "",
+    recipient: str = "",
+    sender: str = "",
+    project_title: str = "",
+    signature_name: str = "",
+    signature_title: str = "",
+) -> BytesIO:
+    """
+    Premium corporate invoice matching the proposal design.
+    """
+
+    buffer = BytesIO()
+
+    studio_name = str(studio_name or "Sovereign Studio").strip()
+    client_name = str(client_name or "Client").strip()
+    currency = str(currency or "USDC").strip().upper()
+    network = str(network or "Base Sepolia").strip()
+    token = str(token or "USDC").strip()
+    tx_hash = str(tx_hash or "").strip()
+    recipient = str(recipient or "").strip()
+    sender = str(sender or "").strip()
+    project_title = str(project_title or "Professional Services").strip()
+    signature_name = str(signature_name or studio_name).strip()
+    signature_title = str(signature_title or "Authorized representative").strip()
+
+    try:
+        job_num = int(job_id)
+    except (TypeError, ValueError):
+        job_num = 0
+
+    invoice_id = f"INV-SB-{job_num:04d}"
+    project_id = f"SB-{job_num:04d}"
+
+    try:
+        numeric_amount = float(amount)
+        amount_display = f"{numeric_amount:,.2f}"
+    except (TypeError, ValueError):
+        amount_display = str(amount or "0")
+
+    issued_at = datetime.utcnow().strftime("%d %B %Y")
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=19 * mm,
+        bottomMargin=20 * mm,
+        title=f"{studio_name} - Invoice {invoice_id}",
+        author=studio_name,
+        subject=f"Invoice {invoice_id}",
+    )
+
+    styles = getSampleStyleSheet()
+
+    brand_style = ParagraphStyle(
+        "InvBrand",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=17,
+        leading=20,
+        textColor=NAVY,
+        spaceAfter=3,
+    )
+
+    brand_subtitle = ParagraphStyle(
+        "InvBrandSubtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7.5,
+        leading=10,
+        textColor=ACCENT,
+        spaceAfter=0,
+        alignment=TA_RIGHT,
+    )
+
+    eyebrow_style = ParagraphStyle(
+        "InvEyebrow",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.5,
+        leading=10,
+        textColor=ACCENT,
+        spaceAfter=5,
+    )
+
+    cover_title = ParagraphStyle(
+        "InvCoverTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=28,
+        leading=33,
+        textColor=NAVY,
+        alignment=TA_LEFT,
+        spaceAfter=6,
+    )
+
+    cover_subtitle = ParagraphStyle(
+        "InvCoverSubtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=10.5,
+        leading=15,
+        textColor=SLATE,
+        spaceAfter=16,
+    )
+
+    table_label_style = ParagraphStyle(
+        "InvTableLabel",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.2,
+        leading=9,
+        textColor=MUTED,
+    )
+
+    table_value_style = ParagraphStyle(
+        "InvTableValue",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=12,
+        textColor=NAVY,
+    )
+
+    table_body_style = ParagraphStyle(
+        "InvTableBody",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8.4,
+        leading=12,
+        textColor=TEXT,
+    )
+
+    table_header_style = ParagraphStyle(
+        "InvTableHeader",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        leading=10,
+        textColor=WHITE,
+    )
+
+    amount_label_style = ParagraphStyle(
+        "InvAmountLabel",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.5,
+        leading=10,
+        textColor=ACCENT,
+        alignment=TA_CENTER,
+    )
+
+    amount_style = ParagraphStyle(
+        "InvAmount",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=26,
+        leading=31,
+        textColor=NAVY,
+        alignment=TA_CENTER,
+    )
+
+    amount_note_style = ParagraphStyle(
+        "InvAmountNote",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=11,
+        textColor=SLATE,
+        alignment=TA_CENTER,
+    )
+
+    heading_style = ParagraphStyle(
+        "InvHeading",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=13,
+        leading=17,
+        textColor=NAVY,
+        spaceBefore=10,
+        spaceAfter=8,
+    )
+
+    body_style = ParagraphStyle(
+        "InvBody",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=9.5,
+        leading=14,
+        textColor=TEXT,
+        spaceAfter=6,
+    )
+
+    small_style = ParagraphStyle(
+        "InvSmall",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7.7,
+        leading=10.5,
+        textColor=MUTED,
+    )
+
+    signature_style = ParagraphStyle(
+        "InvSignature",
+        parent=styles["Normal"],
+        fontName="Helvetica-Oblique",
+        fontSize=12,
+        leading=16,
+        textColor=NAVY,
+    )
+
+    paid_badge_style = ParagraphStyle(
+        "InvPaidBadge",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=10,
+        leading=13,
+        textColor=SUCCESS,
+        alignment=TA_CENTER,
+    )
+
+    def safe(value):
+        if value is None:
+            return ""
+        return escape(str(value)).replace("\n", "<br/>")
+
+    def draw_header_footer(canvas, doc):
+        canvas.saveState()
+        width, height = A4
+
+        canvas.setStrokeColor(ACCENT)
+        canvas.setLineWidth(2.2)
+        canvas.line(
+            doc.leftMargin,
+            height - 10 * mm,
+            width - doc.rightMargin,
+            height - 10 * mm,
+        )
+
+        canvas.setStrokeColor(BORDER)
+        canvas.setLineWidth(0.5)
+        canvas.line(
+            doc.leftMargin,
+            12 * mm,
+            width - doc.rightMargin,
+            12 * mm,
+        )
+
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(MUTED)
+        canvas.drawString(
+            doc.leftMargin,
+            7.5 * mm,
+            f"{studio_name} • Invoice {invoice_id}",
+        )
+        canvas.drawRightString(
+            width - doc.rightMargin,
+            7.5 * mm,
+            f"Page {doc.page}",
+        )
+        canvas.restoreState()
+
+    story = []
+
+    # Header
+    header_table = Table(
+        [
+            [
+                Paragraph(safe(studio_name).upper(), brand_style),
+                Paragraph("PROFESSIONAL INVOICE", brand_subtitle),
+            ]
+        ],
+        colWidths=[100 * mm, 65 * mm],
+    )
+    header_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("LINEBELOW", (0, 0), (-1, 0), 1, BORDER),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+            ]
+        )
+    )
+    story.append(header_table)
+    story.append(Spacer(1, 22))
+
+    # Title
+    story.append(Paragraph("TAX / PAYMENT INVOICE", eyebrow_style))
+    story.append(Paragraph(safe(project_title), cover_title))
+    story.append(
+        Paragraph(
+            "This invoice confirms payment received for the "
+            "professional services detailed below.",
+            cover_subtitle,
+        )
+    )
+
+    # Metadata
+    metadata = [
+        [
+            Paragraph("BILLED TO", table_label_style),
+            Paragraph("INVOICE ID", table_label_style),
+            Paragraph("ISSUE DATE", table_label_style),
+            Paragraph("STATUS", table_label_style),
+        ],
+        [
+            Paragraph(safe(client_name), table_value_style),
+            Paragraph(invoice_id, table_value_style),
+            Paragraph(issued_at, table_value_style),
+            Paragraph("PAID", paid_badge_style),
+        ],
+    ]
+
+    metadata_table = Table(
+        metadata,
+        colWidths=[45 * mm, 40 * mm, 40 * mm, 40 * mm],
+    )
+    metadata_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG),
+                ("BACKGROUND", (0, 1), (-1, 1), WHITE),
+                ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+                ("INNERGRID", (0, 0), (-1, -1), 0.4, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.append(metadata_table)
+    story.append(Spacer(1, 18))
+
+    # Amount highlight
+    amount_block = Table(
+        [
+            [Paragraph("AMOUNT PAID", amount_label_style)],
+            [Paragraph(f"{amount_display} {currency}", amount_style)],
+            [
+                Paragraph(
+                    f"Settled on {network} • {token}",
+                    amount_note_style,
+                )
+            ],
+        ],
+        colWidths=[165 * mm],
+    )
+    amount_block.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), SUCCESS_LIGHT),
+                ("BOX", (0, 0), (-1, -1), 0.8, SUCCESS),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("TOPPADDING", (0, 0), (-1, 0), 10),
+                ("BOTTOMPADDING", (0, -1), (-1, -1), 10),
+                ("TOPPADDING", (0, 1), (-1, 1), 4),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 4),
+            ]
+        )
+    )
+    story.append(amount_block)
+    story.append(Spacer(1, 18))
+
+    # Line items
+    story.append(Paragraph("Invoice Details", heading_style))
+
+    line_items = [
+        [
+            Paragraph("DESCRIPTION", table_header_style),
+            Paragraph("PROJECT", table_header_style),
+            Paragraph("AMOUNT", table_header_style),
+        ],
+        [
+            Paragraph(
+                safe(f"Professional services — {project_title}"),
+                table_body_style,
+            ),
+            Paragraph(project_id, table_body_style),
+            Paragraph(
+                f"{amount_display} {currency}",
+                table_value_style,
+            ),
+        ],
+        [
+            Paragraph("<b>TOTAL PAID</b>", table_value_style),
+            Paragraph("", table_body_style),
+            Paragraph(
+                f"<b>{amount_display} {currency}</b>",
+                table_value_style,
+            ),
+        ],
+    ]
+
+    items_table = Table(
+        line_items,
+        colWidths=[95 * mm, 30 * mm, 40 * mm],
+    )
+    items_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+                ("BACKGROUND", (0, -1), (-1, -1), LIGHT_BG),
+                ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+                ("INNERGRID", (0, 0), (-1, -1), 0.4, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    story.append(items_table)
+    story.append(Spacer(1, 18))
+
+    # Blockchain settlement
+    story.append(Paragraph("Blockchain Settlement", heading_style))
+
+    chain_rows = [
+        [
+            Paragraph("NETWORK", table_label_style),
+            Paragraph(safe(network), table_body_style),
+        ],
+        [
+            Paragraph("TOKEN", table_label_style),
+            Paragraph(safe(token), table_body_style),
+        ],
+        [
+            Paragraph("RECIPIENT WALLET", table_label_style),
+            Paragraph(safe(recipient) or "—", table_body_style),
+        ],
+        [
+            Paragraph("SENDER WALLET", table_label_style),
+            Paragraph(safe(sender) or "—", table_body_style),
+        ],
+        [
+            Paragraph("TRANSACTION HASH", table_label_style),
+            Paragraph(safe(tx_hash) or "—", table_body_style),
+        ],
+        [
+            Paragraph("BLOCK", table_label_style),
+            Paragraph(str(block_number or "—"), table_body_style),
+        ],
+        [
+            Paragraph("CONFIRMATIONS", table_label_style),
+            Paragraph(str(confirmations or "—"), table_body_style),
+        ],
+    ]
+
+    chain_table = Table(chain_rows, colWidths=[45 * mm, 120 * mm])
+    chain_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), LIGHT_BG),
+                ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+                ("INNERGRID", (0, 0), (-1, -1), 0.4, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.append(chain_table)
+    story.append(Spacer(1, 20))
+
+    # Notes
+    story.append(
+        Paragraph(
+            "Payment has been independently verified on-chain. "
+            "This invoice is issued only after a successful "
+            "USDC transfer to the configured studio wallet.",
+            body_style,
+        )
+    )
+    story.append(Spacer(1, 16))
+
+    # Signature
+    signature_data = [
+        [
+            Paragraph("ISSUED BY", table_label_style),
+            Paragraph("RECEIVED BY", table_label_style),
+        ],
+        [
+            Paragraph(safe(signature_name), signature_style),
+            Paragraph(safe(client_name), signature_style),
+        ],
+        [
+            Paragraph("____________________________", small_style),
+            Paragraph("____________________________", small_style),
+        ],
+        [
+            Paragraph(safe(studio_name), table_body_style),
+            Paragraph(safe(client_name), table_body_style),
+        ],
+        [
+            Paragraph(safe(signature_title), small_style),
+            Paragraph("Client", small_style),
+        ],
+    ]
+
+    signature_table = Table(signature_data, colWidths=[82 * mm, 82 * mm])
+    signature_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG),
+                ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+                ("INNERGRID", (0, 0), (-1, -1), 0.4, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.append(signature_table)
+
+    document.build(
+        story,
+        onFirstPage=draw_header_footer,
+        onLaterPages=draw_header_footer,
+    )
+
+    buffer.seek(0)
+    return buffer

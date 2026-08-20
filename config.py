@@ -118,7 +118,7 @@ BASE_SEPOLIA_RPC_URL = os.getenv(
 
 BASE_SEPOLIA_USDC_CONTRACT = os.getenv(
     "BASE_SEPOLIA_USDC_CONTRACT",
-    "",
+    "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
 ).strip()
 
 
@@ -169,6 +169,17 @@ BASE_SEPOLIA_CONFIRMATIONS = int(
     os.getenv(
         "BASE_SEPOLIA_CONFIRMATIONS",
         "2",
+    )
+)
+
+
+# Maximum age of a payment transaction, in seconds.
+# Older hashes are rejected to prevent recycling an
+# earlier payment for a new job.
+PAYMENT_MAX_AGE_SECONDS = int(
+    os.getenv(
+        "PAYMENT_MAX_AGE_SECONDS",
+        "7200",
     )
 )
 

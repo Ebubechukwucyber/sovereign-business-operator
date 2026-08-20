@@ -1653,6 +1653,54 @@ def mark_payment_pending(
     conn.close()
 
 
+def find_other_job_using_tx_hash(tx_hash, exclude_job_id=None):
+    """
+    Replay protection.
+
+    A transaction hash may be attached to only one job.
+    """
+
+    tx_hash = str(tx_hash or "").strip().lower()
+
+    if not tx_hash:
+        return None
+
+    conn = get_connection()
+
+    if exclude_job_id is None:
+        row = conn.execute(
+            """
+            SELECT id, payment_status, status
+            FROM jobs
+            WHERE lower(payment_tx_hash) = ?
+            LIMIT 1
+            """,
+            (tx_hash,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT id, payment_status, status
+            FROM jobs
+            WHERE lower(payment_tx_hash) = ?
+              AND id != ?
+            LIMIT 1
+            """,
+            (tx_hash, exclude_job_id),
+        ).fetchone()
+
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "id": row["id"],
+        "payment_status": row["payment_status"],
+        "status": row["status"],
+    }
+
+
 def is_payment_confirmed(job_id):
     conn = get_connection()
 

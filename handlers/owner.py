@@ -13,10 +13,13 @@ from db import (
     get_all_jobs,
     get_job,
     set_job_paused,
+    set_job_status,
     get_business_rules,
     save_business_rules,
     get_owner_signature,
     save_owner_signature,
+    get_receipt_file,
+    get_invoice_file,
 )
 
 
@@ -1312,6 +1315,8 @@ async def jobs_command(update, context):
 def job_detail_keyboard(job):
 
     job_id = job["id"]
+    status = (job["status"] or "").upper()
+    payment_status = (job["payment_status"] or "").upper()
 
     pause_button = (
         InlineKeyboardButton(
@@ -1325,25 +1330,65 @@ def job_detail_keyboard(job):
         )
     )
 
-    return InlineKeyboardMarkup(
-        [
-            [
-                pause_button,
-            ],
-            [
-                InlineKeyboardButton(
-                    "📦 All Orders",
-                    callback_data="owner_jobs",
-                ),
-            ],
+    rows = [[pause_button]]
+
+    if payment_status == "CONFIRMED" or status == "PAID":
+        rows.append(
             [
                 InlineKeyboardButton(
-                    "🏠 Owner Menu",
-                    callback_data="owner_home",
+                    "✅ Mark Delivered",
+                    callback_data=f"deliver_job_{job_id}",
                 )
-            ],
+            ]
+        )
+
+    if status == "DELIVERED":
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    "🔒 Close Order",
+                    callback_data=f"close_job_{job_id}",
+                )
+            ]
+        )
+
+    if job["receipt_file"] or job["invoice_file"]:
+        doc_row = []
+        if job["receipt_file"]:
+            doc_row.append(
+                InlineKeyboardButton(
+                    "📄 Receipt",
+                    callback_data=f"resend_receipt_{job_id}",
+                )
+            )
+        if job["invoice_file"]:
+            doc_row.append(
+                InlineKeyboardButton(
+                    "🧾 Invoice",
+                    callback_data=f"resend_invoice_{job_id}",
+                )
+            )
+        if doc_row:
+            rows.append(doc_row)
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "📦 All Orders",
+                callback_data="owner_jobs",
+            ),
         ]
     )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "🏠 Owner Menu",
+                callback_data="owner_home",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(rows)
 
 
 def format_job_details(job):
@@ -1404,6 +1449,8 @@ def format_job_details(job):
 
         f"💰 PAYMENT / QUOTE\n"
         f"Price: {price_text}\n"
+        f"Payment status: {job['payment_status'] or 'UNPAID'}\n"
+        f"TX: {job['payment_tx_hash'] or '—'}\n"
         f"Deadline: {job['deadline'] or 'Not set'}\n\n"
 
         f"🧠 ANALYSIS\n"
@@ -1557,6 +1604,163 @@ async def resume_job_callback(update, context):
         format_job_details(job),
         reply_markup=job_detail_keyboard(job),
     )
+
+
+# =========================================================
+# MARK DELIVERED / CLOSE / RESEND DOCS
+# =========================================================
+
+async def deliver_job_callback(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        job_id = int(query.data.replace("deliver_job_", ""))
+    except ValueError:
+        return
+
+    job = get_job(job_id)
+
+    if not job:
+        await query.message.reply_text("Order not found.")
+        return
+
+    status = (job["status"] or "").upper()
+    payment_status = (job["payment_status"] or "").upper()
+
+    if payment_status != "CONFIRMED" and status != "PAID":
+        await query.message.reply_text(
+            "This order is not paid yet. "
+            "Deliver only after payment is confirmed."
+        )
+        return
+
+    set_job_status(job_id, "DELIVERED")
+    job = get_job(job_id)
+
+    try:
+        await context.bot.send_message(
+            chat_id=job["client_telegram_id"],
+            text=(
+                f"✅ Your project #{job_id} has been marked as delivered.\n\n"
+                "If anything is missing, reply here and the studio will help."
+            ),
+        )
+    except Exception:
+        pass
+
+    await query.message.edit_text(
+        format_job_details(job),
+        reply_markup=job_detail_keyboard(job),
+    )
+
+
+async def close_job_callback(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        job_id = int(query.data.replace("close_job_", ""))
+    except ValueError:
+        return
+
+    job = get_job(job_id)
+
+    if not job:
+        await query.message.reply_text("Order not found.")
+        return
+
+    set_job_status(job_id, "CLOSED")
+    job = get_job(job_id)
+
+    await query.message.edit_text(
+        format_job_details(job),
+        reply_markup=job_detail_keyboard(job),
+    )
+
+
+async def resend_receipt_callback(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        job_id = int(query.data.replace("resend_receipt_", ""))
+    except ValueError:
+        return
+
+    path = get_receipt_file(job_id)
+
+    if not path:
+        await query.message.reply_text(
+            "No receipt file is saved for this order yet."
+        )
+        return
+
+    try:
+        with open(path, "rb") as f:
+            await query.message.reply_document(
+                document=f,
+                filename=f"Receipt_SB-{int(job_id):04d}.pdf",
+                caption=f"📄 Receipt for Project #{job_id}",
+            )
+    except Exception as error:
+        await query.message.reply_text(
+            f"Could not send the receipt.\n\nError: {error}"
+        )
+
+
+async def resend_invoice_callback(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        job_id = int(query.data.replace("resend_invoice_", ""))
+    except ValueError:
+        return
+
+    path = get_invoice_file(job_id)
+
+    if not path:
+        await query.message.reply_text(
+            "No invoice file is saved for this order yet."
+        )
+        return
+
+    try:
+        with open(path, "rb") as f:
+            await query.message.reply_document(
+                document=f,
+                filename=f"Invoice_SB-{int(job_id):04d}.pdf",
+                caption=f"🧾 Invoice for Project #{job_id}",
+            )
+    except Exception as error:
+        await query.message.reply_text(
+            f"Could not send the invoice.\n\nError: {error}"
+        )
 
 
 # =========================================================

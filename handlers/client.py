@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import asyncio
 
@@ -13,6 +14,8 @@ from telegram.ext import (
     ConversationHandler,
 )
 
+from datetime import datetime, timezone
+
 from db import (
     get_owner,
     create_job,
@@ -26,6 +29,16 @@ from db import (
     set_job_status,
     client_owns_job,
     save_job_analysis,
+    set_payment_details,
+    set_payment_tx_hash,
+    mark_payment_pending,
+    get_payment_details,
+    confirm_payment,
+    reject_payment,
+    find_other_job_using_tx_hash,
+    save_receipt_file,
+    save_invoice_file,
+    get_owner_signature,
 )
 
 from ai import (
@@ -33,8 +46,11 @@ from ai import (
     template_proposal,
 )
 
+from payment_verifier import verify_usdc_payment
+from payment_receipt import create_payment_receipt_pdf
+
 from pricing import calculate_price
-from pdf_generator import create_proposal_pdf
+from pdf_generator import create_proposal_pdf, create_invoice_pdf
 
 
 # =========================================================
@@ -177,6 +193,85 @@ def rule_number(
         ValueError,
     ):
         return float(default)
+
+
+async def notify_owner_payment_confirmed(
+    context,
+    job_id,
+    client_name,
+    tx_hash,
+    amount,
+    confirmations,
+    receipt_pdf=None,
+    invoice_pdf=None,
+):
+    from config import OWNER_TELEGRAM_ID
+
+    if not OWNER_TELEGRAM_ID:
+        return
+
+    text = (
+        f"💰 Payment confirmed\n\n"
+        f"Project #{job_id}\n"
+        f"Client: {client_name}\n"
+        f"Amount: {amount} USDC\n"
+        f"Network: Base Sepolia\n"
+        f"Confirmations: {confirmations}\n\n"
+        f"TX hash:\n{tx_hash}\n\n"
+        "The job has been marked PAID."
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=OWNER_TELEGRAM_ID,
+            text=text,
+        )
+    except Exception:
+        return
+
+    if receipt_pdf is not None:
+        try:
+            receipt_pdf.seek(0)
+            await context.bot.send_document(
+                chat_id=OWNER_TELEGRAM_ID,
+                document=receipt_pdf,
+                filename=f"Receipt_SB-{int(job_id):04d}.pdf",
+                caption=f"📄 Receipt for Project #{job_id}",
+            )
+        except Exception:
+            pass
+
+    if invoice_pdf is not None:
+        try:
+            invoice_pdf.seek(0)
+            await context.bot.send_document(
+                chat_id=OWNER_TELEGRAM_ID,
+                document=invoice_pdf,
+                filename=f"Invoice_SB-{int(job_id):04d}.pdf",
+                caption=f"🧾 Invoice for Project #{job_id}",
+            )
+        except Exception:
+            pass
+
+
+def parse_iso_timestamp(value):
+    text = clean_text(value)
+
+    if not text:
+        return 0
+
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+
+        parsed = datetime.fromisoformat(text)
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+
+        return int(parsed.timestamp())
+    except (TypeError, ValueError):
+        return 0
 
 
 def extract_number(text):
@@ -1070,6 +1165,12 @@ async def finish_intake(
                 [
                     [
                         InlineKeyboardButton(
+                            "💳 Payment",
+                            callback_data=f"pay_{job_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
                             "📄 View Proposal",
                             callback_data=f"proposal_{job_id}",
                         )
@@ -1401,8 +1502,20 @@ async def handle_edit_request(
                 [
                     [
                         InlineKeyboardButton(
+                            "💳 Payment",
+                            callback_data=f"pay_{job_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
                             "📄 View Proposal",
                             callback_data=f"proposal_{job_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "✏️ Request Changes",
+                            callback_data=f"edit_{job_id}",
                         )
                     ],
                     [
@@ -1872,13 +1985,14 @@ async def payment_page(
         )
     )
 
+    # Prefer configured network/token; fall back to Base Sepolia defaults
     network = clean_text(
         row_get(
             owner,
             "payment_network",
-            "Base",
+            "Base Sepolia",
         )
-    ) or "Base"
+    ) or "Base Sepolia"
 
     token = clean_text(
         row_get(
@@ -1887,6 +2001,19 @@ async def payment_page(
             "USDC",
         )
     ) or "USDC"
+
+    # Persist payment instructions for this job so verification
+    # later has a reliable expected amount, address, etc.
+    try:
+        set_payment_details(
+            job_id,
+            payment_address=address,
+            payment_network=network,
+            payment_token=token,
+            payment_amount=price,
+        )
+    except Exception:
+        pass
 
     text = (
         f"💳 Payment — Project #{job_id}\n\n"
@@ -2013,41 +2140,304 @@ async def handle_paid(
 
             return
 
-        tx_hash = text
+        tx_hash = text.strip()
 
-        if len(tx_hash) < 20:
+        # Basic format check for a 0x + 64 hex chars transaction hash
+        if not re.match(r"^0x[a-fA-F0-9]{64}$", tx_hash):
             await update.message.reply_text(
                 "That doesn't look like a valid "
                 "transaction hash.\n\n"
-                "Please send the complete TX hash."
+                "Please send the complete TX hash "
+                "(0x followed by 64 hexadecimal characters)."
             )
 
             return
 
         # -------------------------------------------------
         # IMPORTANT:
-        # This records the submitted transaction hash.
-        # Actual blockchain verification is handled by
-        # the payment verification layer.
+        # Record the submitted transaction hash and mark
+        # payment as pending / verifying.
+        # Actual on-chain verification is intentionally
+        # left for the next step (do not auto-confirm).
         # -------------------------------------------------
 
+        # Capture before we write the hash, otherwise
+        # updated_at becomes "now" and a valid payment
+        # can look like it came from the past.
+        min_timestamp = parse_iso_timestamp(
+            row_get(job, "updated_at")
+        ) or parse_iso_timestamp(
+            row_get(job, "created_at")
+        )
+
+        current_payment_status = clean_text(
+            row_get(job, "payment_status")
+        ).upper()
+        current_status = clean_text(
+            row_get(job, "status")
+        ).upper()
+
+        if (
+            current_payment_status == "CONFIRMED"
+            or current_status == "PAID"
+        ):
+            await update.message.reply_text(
+                f"Project #{job_id} is already paid.\n\n"
+                "This transaction hash cannot be used again."
+            )
+            return
+
+        other = find_other_job_using_tx_hash(
+            tx_hash,
+            exclude_job_id=job_id,
+        )
+
+        if other:
+            await update.message.reply_text(
+                "This transaction hash was already submitted "
+                "and confirmed for another project.\n\n"
+                "A confirmed payment cannot be reused."
+            )
+            return
+
         try:
+            set_payment_tx_hash(job_id, tx_hash)
+            mark_payment_pending(job_id)
             set_job_status(
                 job_id,
                 "PAYMENT_PENDING",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            await update.message.reply_text(
+                "I received the transaction hash but "
+                "could not record it. Please try again "
+                "or contact the studio.\n\n"
+                f"Error: {e}"
+            )
+            return
 
-        context.user_data["payment_tx_hash"] = tx_hash
+        details = get_payment_details(job_id) or {}
+        recipient = clean_text(
+            details.get("payment_address")
+        )
+        expected_amount = safe_float(
+            details.get("payment_amount")
+            or details.get("quoted_price")
+            or 0
+        )
+
+        if not recipient:
+            reject_payment(
+                job_id,
+                "Owner payment wallet is not configured.",
+            )
+            context.user_data.pop("payment_job_id", None)
+            await update.message.reply_text(
+                "Payment cannot be verified because the "
+                "studio wallet is not configured."
+            )
+            return
 
         await update.message.reply_text(
-            f"Transaction received for Project #{job_id}.\n\n"
-            f"TX hash:\n{tx_hash}\n\n"
-            "⏳ Payment verification is now pending.\n\n"
-            "The transaction will be checked on the "
-            "configured network before the project is "
-            "marked as paid."
+            f"Checking transaction for Project #{job_id}...\n\n"
+            f"{tx_hash}"
+        )
+
+        result = {}
+
+        # Short retry window for unmined / unconfirmed txs.
+        # Does not wait long enough to be abused as a stall.
+        for attempt in range(3):
+            result = verify_usdc_payment(
+                tx_hash=tx_hash,
+                recipient_address=recipient,
+                expected_amount=expected_amount,
+                min_timestamp=min_timestamp,
+            )
+
+            status = result.get("status")
+
+            if status in ("PENDING", "CONFIRMING"):
+                await asyncio.sleep(8)
+                continue
+
+            break
+
+        context.user_data.pop("payment_job_id", None)
+        context.user_data.pop("payment_tx_hash", None)
+
+        if result.get("confirmed"):
+            confirm_payment(
+                job_id,
+                tx_hash,
+                expected_amount,
+                payment_network=details.get(
+                    "payment_network",
+                    "Base Sepolia",
+                ),
+                payment_token=details.get(
+                    "payment_token",
+                    "USDC",
+                ),
+            )
+
+            client_name = clean_text(
+                row_get(job, "client_name", "Client")
+            ) or "Client"
+            paid_amount = result.get("actual_amount") or expected_amount
+            paid_confirmations = result.get("confirmations") or ""
+
+            await update.message.reply_text(
+                f"Payment confirmed for Project #{job_id}.\n\n"
+                f"Amount: {paid_amount} USDC\n"
+                f"Network: Base Sepolia\n"
+                f"Confirmations: {paid_confirmations}\n\n"
+                f"TX hash:\n{tx_hash}"
+            )
+
+            receipt_pdf = None
+            invoice_pdf = None
+
+            try:
+                from config import OWNER_TELEGRAM_ID
+
+                owner = get_owner(OWNER_TELEGRAM_ID)
+                studio_name = clean_text(
+                    row_get(owner, "name", "Sovereign Studio")
+                ) or "Sovereign Studio"
+
+                signature = get_owner_signature(OWNER_TELEGRAM_ID) or {}
+                signature_name = clean_text(
+                    signature.get("signature_name")
+                ) or studio_name
+                signature_title = clean_text(
+                    signature.get("signature_title")
+                ) or "Authorized representative"
+
+                answers = get_job_answers(job_id)
+                if not isinstance(answers, dict):
+                    answers = dict(answers or {})
+                project_title = clean_text(
+                    answers.get("project", "Professional Services")
+                ) or "Professional Services"
+                if len(project_title) > 80:
+                    project_title = project_title[:77] + "..."
+
+                network = details.get("payment_network", "Base Sepolia")
+                token = details.get("payment_token", "USDC")
+                block_number = result.get("block_number") or ""
+                paid_recipient = result.get("recipient") or recipient
+                paid_sender = result.get("sender") or ""
+
+                os.makedirs("data/receipts", exist_ok=True)
+                os.makedirs("data/invoices", exist_ok=True)
+
+                receipt_pdf = create_payment_receipt_pdf(
+                    studio_name=studio_name,
+                    client_name=client_name,
+                    job_id=job_id,
+                    amount=paid_amount,
+                    currency="USDC",
+                    network=network,
+                    token=token,
+                    tx_hash=tx_hash,
+                    block_number=block_number,
+                    confirmations=paid_confirmations,
+                    recipient=paid_recipient,
+                    sender=paid_sender,
+                )
+
+                receipt_path = f"data/receipts/RCPT-SB-{int(job_id):04d}.pdf"
+                with open(receipt_path, "wb") as receipt_file:
+                    receipt_file.write(receipt_pdf.getvalue())
+                receipt_pdf.seek(0)
+                save_receipt_file(job_id, receipt_path)
+
+                await update.message.reply_document(
+                    document=receipt_pdf,
+                    filename=f"Receipt_SB-{int(job_id):04d}.pdf",
+                    caption=(
+                        f"📄 Payment receipt RCPT-SB-{int(job_id):04d}\n\n"
+                        "Your payment has been verified on-chain."
+                    ),
+                )
+
+                invoice_pdf = create_invoice_pdf(
+                    studio_name=studio_name,
+                    client_name=client_name,
+                    job_id=job_id,
+                    amount=paid_amount,
+                    currency="USDC",
+                    network=network,
+                    token=token,
+                    tx_hash=tx_hash,
+                    block_number=block_number,
+                    confirmations=paid_confirmations,
+                    recipient=paid_recipient,
+                    sender=paid_sender,
+                    project_title=project_title,
+                    signature_name=signature_name,
+                    signature_title=signature_title,
+                )
+
+                invoice_path = f"data/invoices/INV-SB-{int(job_id):04d}.pdf"
+                with open(invoice_path, "wb") as invoice_file:
+                    invoice_file.write(invoice_pdf.getvalue())
+                invoice_pdf.seek(0)
+                save_invoice_file(job_id, invoice_path)
+
+                await update.message.reply_document(
+                    document=invoice_pdf,
+                    filename=f"Invoice_SB-{int(job_id):04d}.pdf",
+                    caption=(
+                        f"🧾 Official invoice INV-SB-{int(job_id):04d}\n\n"
+                        "Thank you for your payment."
+                    ),
+                )
+            except Exception as error:
+                receipt_pdf = None
+                invoice_pdf = None
+                await update.message.reply_text(
+                    "Payment is confirmed, but the financial "
+                    "documents could not be generated.\n\n"
+                    f"Error: {error}"
+                )
+
+            await notify_owner_payment_confirmed(
+                context,
+                job_id,
+                client_name,
+                tx_hash,
+                paid_amount,
+                paid_confirmations,
+                receipt_pdf=receipt_pdf,
+                invoice_pdf=invoice_pdf,
+            )
+
+            return
+
+        reason = clean_text(
+            result.get("reason")
+        ) or "Payment could not be verified."
+
+        status = result.get("status")
+
+        if status in ("PENDING", "CONFIRMING"):
+            await update.message.reply_text(
+                "The transaction was found, but it does "
+                "not have enough confirmations yet.\n\n"
+                "Wait about a minute, then send the same "
+                "TX hash again."
+            )
+            return
+
+        reject_payment(job_id, reason)
+
+        await update.message.reply_text(
+            "Payment was not accepted.\n\n"
+            f"{reason}\n\n"
+            "Send a fresh USDC transfer on Base Sepolia "
+            "for this project, then submit the new TX hash."
         )
 
         return

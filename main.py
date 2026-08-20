@@ -1,4 +1,3 @@
-
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -100,6 +99,10 @@ from handlers.owner import (
     owner_job_detail,
     pause_job_callback,
     resume_job_callback,
+    deliver_job_callback,
+    close_job_callback,
+    resend_receipt_callback,
+    resend_invoice_callback,
 )
 
 
@@ -898,6 +901,34 @@ def build_application():
         )
     )
 
+    application.add_handler(
+        CallbackQueryHandler(
+            deliver_job_callback,
+            pattern=r"^deliver_job_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            close_job_callback,
+            pattern=r"^close_job_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            resend_receipt_callback,
+            pattern=r"^resend_receipt_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            resend_invoice_callback,
+            pattern=r"^resend_invoice_\d+$",
+        )
+    )
+
 
     # =====================================================
     # CLIENT HOME
@@ -1052,4 +1083,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from decimal import Decimal, InvalidOperation
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -38,6 +39,7 @@ from config import (
     BASE_SEPOLIA_CHAIN_ID,
     BASE_SEPOLIA_USDC_CONTRACT,
     BASE_SEPOLIA_CONFIRMATIONS,
+    PAYMENT_MAX_AGE_SECONDS,
 )
 
 
@@ -439,6 +441,33 @@ def get_latest_block_number():
     )
 
 
+def get_block_timestamp(block_number):
+    """
+    Return the Unix timestamp for a block.
+    """
+
+    if not block_number:
+        return 0
+
+    result = rpc_call(
+        "eth_getBlockByNumber",
+        [
+            hex(int(block_number)),
+            False,
+        ],
+    )
+
+    if not result:
+        return 0
+
+    return hex_to_int(
+        result.get(
+            "timestamp",
+            "0x0",
+        )
+    )
+
+
 # =========================================================
 # TRANSACTION
 # =========================================================
@@ -622,6 +651,8 @@ def verify_usdc_payment(
     tx_hash,
     recipient_address,
     expected_amount,
+    min_timestamp=0,
+    max_age_seconds=None,
 ):
     """
     Verify a Base Sepolia USDC payment.
@@ -862,6 +893,100 @@ def verify_usdc_payment(
                 "a valid block number yet."
             ),
             "tx_hash": tx_hash,
+        }
+
+    # =====================================================
+    # TIME WINDOW
+    # =====================================================
+    #
+    # Reject recycled old payments and hashes that
+    # predate the quote / payment instructions.
+    #
+
+    try:
+        tx_timestamp = get_block_timestamp(
+            transaction_block
+        )
+    except Exception as exc:
+        return {
+            "success": False,
+            "confirmed": False,
+            "status": "RPC_ERROR",
+            "reason": str(exc),
+            "tx_hash": tx_hash,
+        }
+
+    now_ts = int(time.time())
+
+    if max_age_seconds is None:
+        try:
+            max_age_seconds = int(
+                PAYMENT_MAX_AGE_SECONDS
+            )
+        except (TypeError, ValueError):
+            max_age_seconds = 7200
+
+    if max_age_seconds < 60:
+        max_age_seconds = 60
+
+    if tx_timestamp <= 0:
+        return {
+            "success": False,
+            "confirmed": False,
+            "status": "MISSING_TIMESTAMP",
+            "reason": (
+                "Could not read the transaction "
+                "block timestamp."
+            ),
+            "tx_hash": tx_hash,
+        }
+
+    if tx_timestamp > now_ts + 120:
+        return {
+            "success": False,
+            "confirmed": False,
+            "status": "TX_IN_FUTURE",
+            "reason": (
+                "Transaction timestamp is in the future."
+            ),
+            "tx_hash": tx_hash,
+            "tx_timestamp": tx_timestamp,
+        }
+
+    if tx_timestamp < now_ts - int(max_age_seconds):
+        return {
+            "success": False,
+            "confirmed": False,
+            "status": "TX_TOO_OLD",
+            "reason": (
+                "This transaction is too old to count "
+                "for this payment. Send a new USDC "
+                "transfer after the quote is issued."
+            ),
+            "tx_hash": tx_hash,
+            "tx_timestamp": tx_timestamp,
+            "max_age_seconds": int(max_age_seconds),
+        }
+
+    try:
+        min_timestamp = int(min_timestamp or 0)
+    except (TypeError, ValueError):
+        min_timestamp = 0
+
+    # 60s grace for clock / block-time skew
+    if min_timestamp and tx_timestamp < (min_timestamp - 60):
+        return {
+            "success": False,
+            "confirmed": False,
+            "status": "TX_TOO_EARLY",
+            "reason": (
+                "This transaction was mined before "
+                "payment was requested for this job. "
+                "An older payment cannot be reused."
+            ),
+            "tx_hash": tx_hash,
+            "tx_timestamp": tx_timestamp,
+            "min_timestamp": min_timestamp,
         }
 
     # =====================================================
