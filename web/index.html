@@ -1,16 +1,22 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
   <meta
     name="description"
-    content="Sovereign Business Operator — an AI business operator on Telegram that qualifies jobs, quotes within owner rules, issues proposals, and verifies USDC payments on Base."
+    content="Sovereign Business Operator — an AI business operator on Telegram that qualifies clients, quotes within owner rules, issues proposals, verifies USDC payments on Base, and delivers invoices."
   />
-  <title>Sovereign Business Operator — AI Service Business Operator</title>
+
+  <title>Sovereign Business Operator — AI Business Operator</title>
 
   <style>
+    /* =========================================
+       SOVEREIGN BUSINESS OPERATOR
+       SINGLE-PAGE LANDING PAGE
+    ========================================= */
+
     :root {
       --navy: #0B1F3A;
       --teal: #1A8A9D;
@@ -19,11 +25,16 @@
       --off-white: #F7F8FA;
       --white: #FFFFFF;
 
-      --radius: 18px;
-      --radius-sm: 14px;
-      --shadow: 0 12px 35px rgba(11, 31, 58, 0.08);
-      --border: rgba(11, 31, 58, 0.1);
-      --max-width: 1180px;
+      --border: rgba(11, 31, 58, 0.10);
+      --border-strong: rgba(11, 31, 58, 0.16);
+
+      --shadow-sm: 0 8px 20px rgba(11, 31, 58, 0.06);
+      --shadow: 0 20px 60px rgba(11, 31, 58, 0.12);
+      --shadow-lg: 0 30px 100px rgba(11, 31, 58, 0.18);
+
+      --radius: 22px;
+      --radius-sm: 16px;
+      --max-width: 1240px;
     }
 
     * {
@@ -37,11 +48,19 @@
     }
 
     body {
+      min-width: 320px;
+      overflow-x: hidden;
       background: var(--off-white);
       color: var(--navy);
       font-family:
-        Inter, "DM Sans", ui-sans-serif, system-ui, -apple-system,
-        BlinkMacSystemFont, "Segoe UI", sans-serif;
+        Inter,
+        "DM Sans",
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
     }
@@ -61,21 +80,21 @@
       margin: 0 auto;
     }
 
-    /* ------------------------------
-       Navigation
-    ------------------------------ */
+    /* =========================================
+       NAVIGATION
+    ========================================= */
 
-    .nav {
+    .site-nav {
       position: sticky;
       top: 0;
-      z-index: 20;
-      background: rgba(247, 248, 250, 0.92);
-      backdrop-filter: blur(14px);
+      z-index: 100;
+      background: rgba(247, 248, 250, 0.90);
+      backdrop-filter: blur(18px);
       border-bottom: 1px solid rgba(11, 31, 58, 0.06);
     }
 
     .nav-inner {
-      min-height: 72px;
+      min-height: 78px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -85,31 +104,39 @@
     .brand {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       font-weight: 800;
+      font-size: 0.95rem;
       letter-spacing: -0.03em;
-      font-size: 0.98rem;
+      white-space: nowrap;
     }
 
     .brand-mark {
-      width: 29px;
-      height: 29px;
-      border-radius: 9px;
-      background: var(--navy);
+      width: 36px;
+      height: 36px;
       display: grid;
       place-items: center;
+      border-radius: 11px;
+      background: var(--navy);
       color: var(--yellow);
       font-family: Georgia, serif;
-      font-size: 1.1rem;
+      font-size: 0.72rem;
       font-weight: 700;
+      letter-spacing: -0.08em;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 28px;
     }
 
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 22px;
-      font-size: 0.9rem;
-      font-weight: 600;
+      gap: 24px;
+      font-size: 0.82rem;
+      font-weight: 700;
     }
 
     .nav-links a {
@@ -121,86 +148,173 @@
       color: var(--teal);
     }
 
-    .status {
+    .live-status {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: var(--navy);
-      font-size: 0.82rem;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--yellow);
-      box-shadow: 0 0 0 4px rgba(244, 196, 48, 0.16);
-    }
-
-    /* ------------------------------
-       Hero
-    ------------------------------ */
-
-    .hero {
-      padding: 88px 0 70px;
-    }
-
-    .hero-grid {
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      align-items: center;
-      gap: 72px;
-    }
-
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 9px;
       padding: 8px 12px;
       border: 1px solid var(--border);
       border-radius: 999px;
       background: var(--white);
-      color: var(--teal);
-      font-size: 0.78rem;
+      color: var(--navy);
+      font-size: 0.72rem;
       font-weight: 800;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      white-space: nowrap;
     }
 
-    .eyebrow::before {
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--yellow);
+      box-shadow: 0 0 0 4px rgba(244, 196, 48, 0.14);
+    }
+
+    /* =========================================
+       HERO WRAPPER
+    ========================================= */
+
+    .hero {
+      position: relative;
+      padding: 34px 0 80px;
+      overflow: hidden;
+    }
+
+    /* Large editorial background typography */
+    .hero-background-text {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      overflow: hidden;
+      pointer-events: none;
+      user-select: none;
+      text-align: center;
+      white-space: nowrap;
+      font-size: clamp(5rem, 15vw, 15rem);
+      font-weight: 900;
+      letter-spacing: -0.09em;
+      color: rgba(11, 31, 58, 0.055);
+      line-height: 0.8;
+    }
+
+    .hero-panel {
+      position: relative;
+      z-index: 2;
+      overflow: hidden;
+      min-height: 690px;
+      padding: 38px 46px 44px;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 28px;
+      background:
+        radial-gradient(
+          circle at 75% 38%,
+          rgba(26, 138, 157, 0.10),
+          transparent 25%
+        ),
+        linear-gradient(
+          135deg,
+          #ffffff 0%,
+          #f7f8fa 60%,
+          #edf2f5 100%
+        );
+      box-shadow: var(--shadow-lg);
+    }
+
+    .hero-panel::after {
       content: "";
-      width: 6px;
-      height: 6px;
+      position: absolute;
+      right: -180px;
+      bottom: -240px;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: rgba(26, 138, 157, 0.05);
+      filter: blur(40px);
+      pointer-events: none;
+    }
+
+    .hero-topline {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-product-label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: var(--teal);
+    }
+
+    .hero-product-label::before {
+      content: "";
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       background: var(--yellow);
     }
 
+    .hero-main {
+      position: relative;
+      z-index: 3;
+      display: grid;
+      grid-template-columns: 0.86fr 1.14fr;
+      align-items: center;
+      gap: 50px;
+      padding-top: 54px;
+    }
+
+    .hero-copy-block {
+      position: relative;
+      z-index: 4;
+    }
+
+    .hero-kicker {
+      color: var(--teal);
+      font-size: 0.8rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
     h1,
-    h2 {
-      font-family: Georgia, "Times New Roman", serif;
+    h2,
+    .serif {
+      font-family:
+        Georgia,
+        "Times New Roman",
+        serif;
       font-weight: 500;
-      letter-spacing: -0.055em;
-      line-height: 1.02;
+      letter-spacing: -0.06em;
+      line-height: 0.98;
     }
 
     h1 {
-      max-width: 800px;
-      margin: 22px 0;
-      font-size: clamp(3rem, 6.2vw, 5.7rem);
+      max-width: 700px;
+      margin-top: 16px;
+      font-size: clamp(4rem, 7vw, 7.5rem);
     }
 
     .hero-copy {
-      max-width: 650px;
+      max-width: 560px;
+      margin-top: 24px;
       color: var(--slate);
-      font-size: clamp(1rem, 1.5vw, 1.18rem);
-      line-height: 1.75;
+      font-size: 1rem;
+      line-height: 1.8;
     }
 
     .hero-copy strong {
       color: var(--navy);
-      font-weight: 750;
     }
 
     .hero-actions {
@@ -211,20 +325,21 @@
     }
 
     .button {
-      min-height: 50px;
-      padding: 0 20px;
+      min-height: 51px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 9px;
-      border-radius: 12px;
+      padding: 0 20px;
       border: 1px solid transparent;
-      font-size: 0.92rem;
-      font-weight: 750;
+      border-radius: 12px;
+      font-size: 0.83rem;
+      font-weight: 800;
+      letter-spacing: 0.01em;
       transition:
         transform 0.2s ease,
         box-shadow 0.2s ease,
-        background 0.2s ease;
+        border-color 0.2s ease;
     }
 
     .button:hover {
@@ -234,210 +349,405 @@
     .button-primary {
       background: var(--navy);
       color: var(--white);
-      box-shadow: 0 10px 20px rgba(11, 31, 58, 0.16);
+      box-shadow: 0 12px 25px rgba(11, 31, 58, 0.16);
     }
 
     .button-secondary {
-      background: transparent;
-      border-color: rgba(11, 31, 58, 0.2);
+      background: rgba(255, 255, 255, 0.6);
+      border-color: var(--border-strong);
       color: var(--navy);
     }
 
-    .button-tertiary {
-      color: var(--teal);
-      padding-left: 8px;
-      padding-right: 8px;
-    }
+    /* =========================================
+       AI OPERATOR VISUAL
+    ========================================= */
 
-    /* Telegram operator card */
-
-    .operator-card {
+    .operator-stage {
       position: relative;
-      overflow: hidden;
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: 22px;
-      padding: 26px;
-      box-shadow: var(--shadow);
+      min-height: 480px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
-    .operator-card::before {
+    .operator-orbit {
+      position: absolute;
+      width: min(72vw, 430px);
+      aspect-ratio: 1;
+      border: 1px solid rgba(11, 31, 58, 0.12);
+      border-radius: 50%;
+    }
+
+    .operator-orbit::before {
       content: "";
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
+      inset: 38px;
+      border: 1px dashed rgba(26, 138, 157, 0.30);
+      border-radius: 50%;
+    }
+
+    .operator-orbit::after {
+      content: "";
+      position: absolute;
+      inset: 84px;
+      border: 1px solid rgba(11, 31, 58, 0.08);
+      border-radius: 50%;
+    }
+
+    .operator-core {
+      position: relative;
+      z-index: 4;
+      width: 280px;
+      aspect-ratio: 1;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 50%;
+      background:
+        radial-gradient(
+          circle at 38% 30%,
+          rgba(60, 100, 145, 0.75),
+          transparent 30%
+        ),
+        linear-gradient(
+          145deg,
+          #17365f,
+          #0b1f3a 65%,
+          #071729
+        );
+      box-shadow:
+        inset 0 0 50px rgba(255, 255, 255, 0.05),
+        0 35px 70px rgba(11, 31, 58, 0.26);
+    }
+
+    .operator-core::before {
+      content: "";
+      position: absolute;
+      inset: 13px;
+      border-radius: 50%;
+      border: 1px solid rgba(26, 138, 157, 0.32);
+    }
+
+    .operator-core::after {
+      content: "";
+      position: absolute;
+      inset: 48px;
+      border-radius: 50%;
+      border: 1px solid rgba(244, 196, 48, 0.16);
+    }
+
+    .core-top,
+    .core-bottom {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .core-label {
+      color: rgba(255, 255, 255, 0.58);
+      font-size: 0.58rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .core-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--yellow);
+      font-size: 0.58rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .core-live::before {
+      content: "";
+      width: 5px;
       height: 5px;
+      border-radius: 50%;
       background: var(--yellow);
     }
 
-    .terminal-header {
+    .core-center {
+      position: relative;
+      z-index: 4;
+      text-align: center;
+    }
+
+    .core-symbol {
+      color: var(--teal);
+      font-size: 5.8rem;
+      font-weight: 200;
+      line-height: 0.8;
+      text-shadow: 0 0 25px rgba(26, 138, 157, 0.45);
+    }
+
+    .core-title {
+      margin-top: 18px;
+      color: var(--white);
+      font-size: 0.85rem;
+      font-weight: 800;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    .core-subtitle {
+      margin-top: 4px;
+      color: rgba(255, 255, 255, 0.48);
+      font-size: 0.66rem;
+    }
+
+    .core-bottom {
+      color: rgba(255, 255, 255, 0.45);
+      font-size: 0.57rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    /* Floating product cards */
+
+    .float-card {
+      position: absolute;
+      z-index: 7;
+      min-width: 155px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .float-icon {
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: var(--navy);
+      color: var(--yellow);
+      font-size: 0.8rem;
+      font-weight: 800;
+    }
+
+    .float-card small {
+      display: block;
+      color: var(--slate);
+      font-size: 0.59rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .float-card strong {
+      display: block;
+      margin-top: 2px;
+      color: var(--navy);
+      font-size: 0.73rem;
+      line-height: 1.3;
+    }
+
+    .card-ai {
+      top: 32px;
+      right: 10px;
+    }
+
+    .card-pricing {
+      top: 180px;
+      right: -10px;
+    }
+
+    .card-payment {
+      bottom: 36px;
+      right: 22px;
+    }
+
+    .card-proposal {
+      left: 0;
+      bottom: 100px;
+    }
+
+    .payment-icon {
+      background: var(--yellow);
+      color: var(--navy);
+    }
+
+    /* =========================================
+       TRUST STRIP
+    ========================================= */
+
+    .trust-strip {
+      position: relative;
+      z-index: 4;
+      margin-top: -25px;
+    }
+
+    .trust-strip-inner {
+      padding: 22px 30px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--border);
+      gap: 25px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--white);
+      box-shadow: var(--shadow-sm);
     }
 
-    .terminal-title {
-      font-size: 0.82rem;
-      font-weight: 800;
-    }
-
-    .terminal-live {
-      color: var(--teal);
-      font-size: 0.75rem;
-      font-weight: 800;
-    }
-
-    .chat-stack {
-      display: grid;
-      gap: 14px;
-      padding-top: 22px;
-    }
-
-    .message {
-      max-width: 88%;
-      padding: 13px 15px;
-      border-radius: 14px;
-      font-size: 0.86rem;
-      line-height: 1.55;
-    }
-
-    .message.client {
-      justify-self: end;
-      background: var(--off-white);
-      color: var(--navy);
-      border: 1px solid rgba(11, 31, 58, 0.07);
-      border-bottom-right-radius: 4px;
-    }
-
-    .message.agent {
-      background: rgba(26, 138, 157, 0.08);
-      color: var(--navy);
-      border-left: 3px solid var(--teal);
-      border-bottom-left-radius: 4px;
-    }
-
-    .payment-event {
-      margin-top: 5px;
-      padding: 13px 15px;
-      background: var(--navy);
-      color: var(--white);
-      border-radius: 13px;
-    }
-
-    .payment-event small {
-      display: block;
-      margin-bottom: 4px;
-      color: rgba(255, 255, 255, 0.65);
+    .trust-label {
+      color: var(--slate);
       font-size: 0.68rem;
       font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .trust-items {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 32px;
+    }
+
+    .trust-item {
+      color: var(--navy);
+      font-size: 0.77rem;
+      font-weight: 850;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    .payment-event strong {
-      color: var(--yellow);
-      font-size: 0.86rem;
-    }
-
-    /* ------------------------------
-       Shared sections
-    ------------------------------ */
+    /* =========================================
+       SHARED SECTION STYLES
+    ========================================= */
 
     section {
-      padding: 90px 0;
+      padding: 100px 0;
     }
 
     .section-kicker {
       color: var(--teal);
-      font-size: 0.78rem;
-      font-weight: 800;
-      letter-spacing: 0.1em;
+      font-size: 0.74rem;
+      font-weight: 850;
+      letter-spacing: 0.13em;
       text-transform: uppercase;
     }
 
     .section-heading {
-      margin-top: 10px;
-      max-width: 680px;
-      font-size: clamp(2.1rem, 4vw, 3.8rem);
+      max-width: 800px;
+      margin-top: 12px;
+      font-size: clamp(2.6rem, 5vw, 5rem);
     }
 
     .section-intro {
-      max-width: 660px;
-      margin-top: 18px;
+      max-width: 680px;
+      margin-top: 20px;
       color: var(--slate);
       font-size: 1rem;
+      line-height: 1.75;
     }
 
-    /* ------------------------------
-       Features
-    ------------------------------ */
+    /* =========================================
+       FEATURE SECTION
+    ========================================= */
 
-    .features-grid {
+    .feature-grid {
+      margin-top: 50px;
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
-      margin-top: 42px;
     }
 
     .feature-card {
-      min-height: 250px;
-      padding: 28px;
-      background: var(--white);
+      min-height: 310px;
+      padding: 25px;
+      display: flex;
+      flex-direction: column;
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      box-shadow: 0 8px 22px rgba(11, 31, 58, 0.035);
+      background: var(--white);
+      box-shadow: var(--shadow-sm);
       transition:
-        transform 0.2s ease,
-        box-shadow 0.2s ease;
+        transform 0.25s ease,
+        box-shadow 0.25s ease;
     }
 
     .feature-card:hover {
-      transform: translateY(-4px);
+      transform: translateY(-5px);
       box-shadow: var(--shadow);
     }
 
     .feature-number {
       color: var(--teal);
-      font-size: 0.8rem;
+      font-size: 0.68rem;
       font-weight: 850;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
     }
 
     .feature-icon {
-      width: 42px;
-      height: 42px;
-      margin: 26px 0 18px;
+      width: 46px;
+      height: 46px;
+      margin-top: 35px;
       display: grid;
       place-items: center;
-      border-radius: 12px;
+      border-radius: 13px;
       background: var(--off-white);
       border: 1px solid var(--border);
       color: var(--navy);
-      font-size: 1.15rem;
+      font-size: 1rem;
       font-weight: 800;
     }
 
     .feature-card h3 {
-      font-size: 1.1rem;
-      letter-spacing: -0.02em;
+      margin-top: 22px;
+      font-size: 1rem;
+      letter-spacing: -0.025em;
     }
 
     .feature-card p {
-      margin-top: 9px;
+      margin-top: 10px;
       color: var(--slate);
-      font-size: 0.92rem;
+      font-size: 0.84rem;
+      line-height: 1.65;
     }
 
-    /* ------------------------------
-       Demo path
-    ------------------------------ */
+    .feature-arrow {
+      margin-top: auto;
+      padding-top: 20px;
+      color: var(--teal);
+      font-size: 1rem;
+      font-weight: 800;
+    }
+
+    /* =========================================
+       DEMO PATH
+    ========================================= */
 
     .demo-section {
+      position: relative;
+      overflow: hidden;
       background: var(--navy);
       color: var(--white);
+    }
+
+    .demo-section::before {
+      content: "DEMO PATH";
+      position: absolute;
+      top: -30px;
+      right: -20px;
+      color: rgba(255, 255, 255, 0.025);
+      font-size: clamp(6rem, 16vw, 16rem);
+      font-weight: 900;
+      letter-spacing: -0.08em;
+      white-space: nowrap;
+      pointer-events: none;
     }
 
     .demo-section .section-kicker {
@@ -449,154 +759,240 @@
     }
 
     .demo-section .section-intro {
-      color: rgba(255, 255, 255, 0.66);
+      color: rgba(255, 255, 255, 0.62);
     }
 
-    .steps {
-      margin-top: 44px;
+    .demo-flow {
+      position: relative;
+      margin-top: 58px;
       display: grid;
       grid-template-columns: repeat(6, 1fr);
-      gap: 12px;
+      gap: 0;
     }
 
-    .step {
+    .demo-step {
       position: relative;
-      min-height: 205px;
-      padding: 22px;
-      border-radius: var(--radius-sm);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(255, 255, 255, 0.045);
+      min-height: 300px;
+      padding: 25px 22px;
+      border-top: 1px solid rgba(255, 255, 255, 0.20);
+      border-right: 1px solid rgba(255, 255, 255, 0.10);
+    }
+
+    .demo-step:last-child {
+      border-right: none;
+    }
+
+    .demo-step::before {
+      content: "";
+      position: absolute;
+      top: -4px;
+      left: 0;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--yellow);
     }
 
     .step-number {
       color: var(--yellow);
-      font-size: 0.75rem;
+      font-size: 0.67rem;
       font-weight: 850;
+      letter-spacing: 0.11em;
     }
 
-    .step h3 {
-      margin-top: 28px;
-      font-size: 0.98rem;
-      letter-spacing: -0.02em;
+    .demo-step h3 {
+      margin-top: 36px;
+      font-size: 1.02rem;
+      letter-spacing: -0.025em;
     }
 
-    .step p {
-      margin-top: 8px;
-      color: rgba(255, 255, 255, 0.62);
-      font-size: 0.82rem;
-      line-height: 1.55;
+    .demo-step p {
+      margin-top: 10px;
+      color: rgba(255, 255, 255, 0.58);
+      font-size: 0.79rem;
+      line-height: 1.65;
     }
 
-    /* ------------------------------
-       Payment panel
-    ------------------------------ */
+    .step-arrow {
+      position: absolute;
+      bottom: 25px;
+      color: var(--teal);
+      font-size: 1.2rem;
+    }
+
+    /* =========================================
+       PAYMENT NETWORK
+    ========================================= */
+
+    .payment-section {
+      position: relative;
+    }
 
     .payment-panel {
       position: relative;
       overflow: hidden;
-      margin-top: 42px;
-      padding: 34px;
-      background: var(--white);
+      margin-top: 50px;
+      padding: 48px;
       border: 1px solid var(--border);
-      border-radius: 20px;
+      border-radius: 24px;
+      background: var(--white);
       box-shadow: var(--shadow);
     }
 
     .payment-panel::before {
       content: "";
       position: absolute;
-      inset: 0 auto 0 0;
-      width: 7px;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 7px;
       background: var(--yellow);
     }
 
     .payment-grid {
       display: grid;
       grid-template-columns: 0.9fr 1.1fr;
-      gap: 40px;
+      gap: 70px;
       align-items: center;
     }
 
     .payment-title {
       font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(1.8rem, 3vw, 2.8rem);
+      font-size: clamp(2rem, 4vw, 4rem);
       font-weight: 500;
-      letter-spacing: -0.045em;
-      line-height: 1.1;
+      letter-spacing: -0.055em;
+      line-height: 1.02;
     }
 
-    .payment-description {
-      margin-top: 14px;
+    .payment-copy {
+      margin-top: 18px;
       color: var(--slate);
-      font-size: 0.94rem;
+      font-size: 0.96rem;
+      line-height: 1.75;
     }
 
-    .chips {
+    .payment-copy strong {
+      color: var(--navy);
+    }
+
+    .network-chips {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      justify-content: flex-start;
     }
 
     .chip {
-      padding: 10px 14px;
+      padding: 11px 15px;
+      border: 1px solid var(--border);
       border-radius: 999px;
       background: var(--off-white);
-      border: 1px solid var(--border);
       color: var(--navy);
-      font-size: 0.84rem;
-      font-weight: 750;
+      font-size: 0.78rem;
+      font-weight: 800;
     }
 
-    .chip.trust {
-      background: rgba(244, 196, 48, 0.13);
+    .chip-highlight {
+      background: rgba(244, 196, 48, 0.14);
       border-color: rgba(244, 196, 48, 0.45);
     }
 
-    .security-note {
-      margin-top: 22px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-      color: var(--slate);
-      font-size: 0.88rem;
+    .verification-list {
+      margin-top: 28px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 11px;
     }
 
-    .security-note strong {
+    .verification-item {
+      padding: 13px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--slate);
+      font-size: 0.77rem;
+      line-height: 1.4;
+    }
+
+    .verification-check {
+      width: 19px;
+      height: 19px;
+      flex: 0 0 19px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(26, 138, 157, 0.10);
+      color: var(--teal);
+      font-size: 0.68rem;
+      font-weight: 900;
+    }
+
+    .security-statement {
+      margin-top: 25px;
+      padding: 16px 18px;
+      border-left: 3px solid var(--yellow);
+      background: rgba(244, 196, 48, 0.06);
       color: var(--navy);
+      font-size: 0.85rem;
+      font-weight: 700;
+      line-height: 1.6;
     }
 
-    /* ------------------------------
-       Closing CTA
-    ------------------------------ */
+    /* =========================================
+       CTA
+    ========================================= */
 
-    .closing {
+    .final-cta {
+      position: relative;
+      overflow: hidden;
       text-align: center;
-      padding: 100px 0;
+      padding: 120px 0;
     }
 
-    .closing h2 {
-      max-width: 760px;
+    .final-cta::before {
+      content: "SOVEREIGN";
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(11, 31, 58, 0.035);
+      font-size: clamp(5rem, 16vw, 15rem);
+      font-weight: 900;
+      letter-spacing: -0.08em;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .final-cta-content {
+      position: relative;
+      z-index: 2;
+    }
+
+    .final-cta h2 {
+      max-width: 900px;
       margin: 0 auto;
-      font-size: clamp(2.3rem, 5vw, 4.5rem);
+      font-size: clamp(3rem, 6vw, 6rem);
     }
 
-    .closing p {
-      max-width: 610px;
-      margin: 20px auto 0;
+    .final-cta p {
+      max-width: 650px;
+      margin: 22px auto 0;
       color: var(--slate);
+      line-height: 1.75;
     }
 
-    .closing .hero-actions {
+    .final-cta .hero-actions {
       justify-content: center;
     }
 
-    /* ------------------------------
-       Footer
-    ------------------------------ */
+    /* =========================================
+       FOOTER
+    ========================================= */
 
     footer {
+      padding: 28px 0;
       border-top: 1px solid var(--border);
-      padding: 30px 0;
     }
 
     .footer-inner {
@@ -605,93 +1001,218 @@
       justify-content: space-between;
       gap: 20px;
       color: var(--slate);
-      font-size: 0.84rem;
+      font-size: 0.76rem;
     }
 
     .footer-inner a {
       color: var(--teal);
-      font-weight: 700;
+      font-weight: 800;
     }
 
-    /* ------------------------------
-       Responsive
-    ------------------------------ */
+    /* =========================================
+       RESPONSIVE
+    ========================================= */
 
-    @media (max-width: 1000px) {
-      .hero-grid,
-      .payment-grid {
+    @media (max-width: 1100px) {
+      .hero-main {
         grid-template-columns: 1fr;
       }
 
-      .hero-grid {
-        gap: 48px;
+      .operator-stage {
+        max-width: 650px;
+        width: 100%;
+        margin: 10px auto 0;
       }
 
-      .steps {
+      .feature-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .demo-flow {
         grid-template-columns: repeat(3, 1fr);
+      }
+
+      .demo-step:nth-child(3) {
+        border-right: none;
+      }
+
+      .demo-step:nth-child(-n+3) {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.10);
       }
     }
 
-    @media (max-width: 720px) {
+    @media (max-width: 850px) {
+      .nav-links {
+        display: none;
+      }
+
+      .payment-grid {
+        grid-template-columns: 1fr;
+        gap: 35px;
+      }
+
+      .trust-strip-inner {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .trust-items {
+        justify-content: flex-start;
+        gap: 20px;
+      }
+    }
+
+    @media (max-width: 650px) {
       .container {
         width: min(calc(100% - 28px), var(--max-width));
       }
 
       .nav-inner {
-        min-height: 64px;
+        min-height: 68px;
       }
 
-      .nav-links a {
-        display: none;
+      .brand {
+        font-size: 0.78rem;
       }
 
-      .status {
-        font-size: 0.74rem;
+      .brand-mark {
+        width: 32px;
+        height: 32px;
+      }
+
+      .live-status {
+        padding: 7px 10px;
+        font-size: 0.63rem;
       }
 
       .hero {
-        padding: 58px 0 50px;
+        padding: 18px 0 60px;
       }
 
-      section {
-        padding: 65px 0;
-      }
-
-      .features-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .steps {
-        grid-template-columns: 1fr;
-      }
-
-      .step {
+      .hero-panel {
         min-height: auto;
+        padding: 25px 20px 35px;
+        border-radius: 22px;
       }
 
-      .step h3 {
-        margin-top: 18px;
+      .hero-topline {
+        padding-bottom: 20px;
       }
 
-      .operator-card {
+      .hero-main {
+        gap: 20px;
+        padding-top: 35px;
+      }
+
+      h1 {
+        font-size: clamp(3.5rem, 16vw, 5rem);
+      }
+
+      .hero-copy {
+        font-size: 0.93rem;
+      }
+
+      .operator-stage {
+        min-height: 480px;
+        transform: scale(0.90);
+        transform-origin: center;
+        margin-top: -10px;
+        margin-bottom: -25px;
+      }
+
+      .operator-core {
+        width: 255px;
+      }
+
+      .float-card {
+        min-width: 135px;
+        padding: 11px;
+      }
+
+      .float-icon {
+        width: 29px;
+        height: 29px;
+        flex-basis: 29px;
+      }
+
+      .card-ai {
+        right: -5px;
+      }
+
+      .card-pricing {
+        right: -5px;
+      }
+
+      .card-payment {
+        right: 5px;
+      }
+
+      .card-proposal {
+        left: -5px;
+      }
+
+      .trust-strip {
+        margin-top: -5px;
+      }
+
+      .trust-strip-inner {
         padding: 20px;
       }
 
+      .trust-items {
+        gap: 12px 18px;
+      }
+
+      section {
+        padding: 75px 0;
+      }
+
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature-card {
+        min-height: 260px;
+      }
+
+      .demo-flow {
+        grid-template-columns: 1fr;
+      }
+
+      .demo-step,
+      .demo-step:nth-child(3) {
+        min-height: 210px;
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+      }
+
+      .demo-step:last-child {
+        border-bottom: none;
+      }
+
+      .demo-step h3 {
+        margin-top: 20px;
+      }
+
+      .step-arrow {
+        display: none;
+      }
+
       .payment-panel {
-        padding: 28px 24px;
+        padding: 32px 22px;
+      }
+
+      .verification-list {
+        grid-template-columns: 1fr;
       }
 
       .footer-inner {
-        align-items: flex-start;
         flex-direction: column;
+        align-items: flex-start;
       }
     }
 
-    @media (max-width: 460px) {
-      h1 {
-        font-size: 3rem;
-      }
-
+    @media (max-width: 430px) {
       .hero-actions {
         flex-direction: column;
       }
@@ -700,8 +1221,14 @@
         width: 100%;
       }
 
-      .button-tertiary {
-        width: auto;
+      .operator-stage {
+        transform: scale(0.82);
+        margin-top: -35px;
+        margin-bottom: -45px;
+      }
+
+      .trust-item {
+        font-size: 0.68rem;
       }
     }
   </style>
@@ -709,334 +1236,769 @@
 
 <body>
 
-  <!-- Navigation -->
-  <header class="nav">
+  <!-- =========================================
+       NAVIGATION
+  ========================================= -->
+
+  <header class="site-nav">
     <div class="container nav-inner">
+
       <a
-        href="https://t.me/sovereign_business_operator_bot"
+        href="#top"
         class="brand"
-        aria-label="Sovereign Business Operator home"
+        aria-label="Sovereign Business Operator"
       >
-        <span class="brand-mark">S</span>
-        <span>Sovereign Operator</span>
+        <span class="brand-mark">SB</span>
+        <span>Sovereign Business Operator</span>
       </a>
 
-      <nav class="nav-links" aria-label="Primary navigation">
-        <a
-          href="https://github.com/Ebubechukwucyber/sovereign-business-operator"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          GitHub
-        </a>
-        <a href="#demo-path">Demo path</a>
-        <a href="#payments">Payments</a>
-        <span class="status">
-          <span class="status-dot"></span>
-          Live on Base
-        </span>
-      </nav>
-    </div>
-  </header>
+      <div class="nav-right">
 
-  <main>
-
-    <!-- Hero -->
-    <section class="hero">
-      <div class="container hero-grid">
-
-        <div>
-          <div class="eyebrow">
-            AI agent · Telegram · Base USDC
-          </div>
-
-          <h1>Run a service business from one AI operator.</h1>
-
-          <p class="hero-copy">
-            Sovereign qualifies clients, prices work within
-            <strong>owner-defined rules</strong>, issues scoped proposals,
-            verifies USDC transfers on Base through deterministic on-chain
-            checks, and delivers receipts and invoices — all inside Telegram.
-          </p>
-
-          <div class="hero-actions">
-            <a
-              href="https://t.me/sovereign_business_operator_bot"
-              class="button button-primary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open live demo
-              <span aria-hidden="true">↗</span>
-            </a>
-
-            <a
-              href="https://github.com/Ebubechukwucyber/sovereign-business-operator"
-              class="button button-secondary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              View source
-              <span aria-hidden="true">↗</span>
-            </a>
-          </div>
-        </div>
-
-        <aside class="operator-card" aria-label="Example Sovereign operator workflow">
-          <div class="terminal-header">
-            <span class="terminal-title">Sovereign Operator</span>
-            <span class="terminal-live">● TELEGRAM SESSION</span>
-          </div>
-
-          <div class="chat-stack">
-            <div class="message client">
-              I need a quote for a rush design project. Delivery in 3 days.
-            </div>
-
-            <div class="message agent">
-              Got it. I’ll qualify the scope, apply the business pricing rules,
-              and prepare your proposal.
-            </div>
-
-            <div class="message agent">
-              Proposal issued. Payment instructions are ready for USDC on Base.
-            </div>
-
-            <div class="payment-event">
-              <small>Deterministic verification</small>
-              <strong>TX submitted → on-chain checks → confirmation</strong>
-            </div>
-          </div>
-        </aside>
-
-      </div>
-    </section>
-
-    <!-- Features -->
-    <section id="features">
-      <div class="container">
-        <div class="section-kicker">The operating loop</div>
-        <h2 class="section-heading">
-          From first message to verifiable settlement.
-        </h2>
-        <p class="section-intro">
-          AI handles the conversational business workflow. Deterministic rules
-          handle pricing boundaries and payment verification.
-        </p>
-
-        <div class="features-grid">
-
-          <article class="feature-card">
-            <div class="feature-number">01</div>
-            <div class="feature-icon">↗</div>
-            <h3>AI intake & pricing</h3>
-            <p>
-              Qualifies jobs using size, complexity, deadline tightness and
-              everyday market sense — while keeping prices inside owner-defined
-              minimum and maximum bounds.
-            </p>
-          </article>
-
-          <article class="feature-card">
-            <div class="feature-number">02</div>
-            <div class="feature-icon">□</div>
-            <h3>Scoped proposals</h3>
-            <p>
-              Turns the conversation into a professional proposal with clear
-              scope, exclusions and business fit instead of leaving the deal
-              buried in chat messages.
-            </p>
-          </article>
-
-          <article class="feature-card">
-            <div class="feature-number">03</div>
-            <div class="feature-icon">✓</div>
-            <h3>On-chain USDC verification</h3>
-            <p>
-              Checks the submitted transaction against Base, the configured
-              USDC contract, recipient wallet, amount, confirmations,
-              freshness and replay rules.
-            </p>
-          </article>
-
-          <article class="feature-card">
-            <div class="feature-number">04</div>
-            <div class="feature-icon">◎</div>
-            <h3>Owner control panel</h3>
-            <p>
-              Configure the business, pricing bounds and payment wallet. Track
-              orders, pause operations, mark delivery complete and resend
-              financial documents from Telegram.
-            </p>
-          </article>
-
-        </div>
-      </div>
-    </section>
-
-    <!-- Demo Path -->
-    <section id="demo-path" class="demo-section">
-      <div class="container">
-        <div class="section-kicker">Judge-ready walkthrough</div>
-        <h2 class="section-heading">The demo path in six moves.</h2>
-        <p class="section-intro">
-          A complete service-business loop that can be demonstrated from a
-          single Telegram conversation.
-        </p>
-
-        <div class="steps">
-
-          <article class="step">
-            <div class="step-number">01 / START</div>
-            <h3>Open the operator</h3>
-            <p>
-              Launch the Telegram bot and begin a new client conversation.
-            </p>
-          </article>
-
-          <article class="step">
-            <div class="step-number">02 / ORDER</div>
-            <h3>Describe the job</h3>
-            <p>
-              Complete the conversational intake with the required service
-              details and timeline.
-            </p>
-          </article>
-
-          <article class="step">
-            <div class="step-number">03 / PROPOSAL</div>
-            <h3>Receive the scope</h3>
-            <p>
-              Sovereign generates a quote within owner rules and issues a
-              scoped proposal.
-            </p>
-          </article>
-
-          <article class="step">
-            <div class="step-number">04 / PAY</div>
-            <h3>Send USDC on Base</h3>
-            <p>
-              Pay the quoted amount to the configured business wallet using
-              Base mainnet.
-            </p>
-          </article>
-
-          <article class="step">
-            <div class="step-number">05 / TX HASH</div>
-            <h3>Paste the transaction</h3>
-            <p>
-              Submit the transaction hash so the deterministic verifier can
-              inspect the on-chain transfer.
-            </p>
-          </article>
-
-          <article class="step">
-            <div class="step-number">06 / DOCUMENTS</div>
-            <h3>Receive proof</h3>
-            <p>
-              After successful verification, the workflow issues the receipt
-              and invoice for the confirmed payment.
-            </p>
-          </article>
-
-        </div>
-      </div>
-    </section>
-
-    <!-- Payment Network -->
-    <section id="payments">
-      <div class="container">
-        <div class="section-kicker">Payment network</div>
-        <h2 class="section-heading">
-          AI can operate the business. The chain verifies the money.
-        </h2>
-
-        <div class="payment-panel">
-          <div class="payment-grid">
-
-            <div>
-              <div class="payment-title">
-                A trust boundary between intelligence and settlement.
-              </div>
-
-              <p class="payment-description">
-                The AI can assist with intake, pricing and proposals. Payment
-                confirmation is not delegated to the model. Sovereign's chain
-                verifier evaluates the transaction against explicit on-chain
-                rules.
-              </p>
-            </div>
-
-            <div>
-              <div class="chips">
-                <span class="chip trust">Base</span>
-                <span class="chip">Chain 8453</span>
-                <span class="chip trust">USDC</span>
-                <a
-                  href="https://basescan.org"
-                  class="chip"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  basescan.org ↗
-                </a>
-              </div>
-
-              <p class="security-note">
-                <strong>Verification checks:</strong>
-                successful transaction · correct network · configured USDC
-                contract · recipient wallet · quoted amount · confirmation
-                depth · transaction freshness · replay protection.
-              </p>
-            </div>
-
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Closing CTA -->
-    <section class="closing">
-      <div class="container">
-        <div class="section-kicker">One operator, one business loop</div>
-
-        <h2>
-          Turn Telegram conversations into quotes, proposals and verifiable
-          payments.
-        </h2>
-
-        <p>
-          Built for service businesses that need an intelligent front office
-          without trusting AI to make deterministic financial decisions.
-        </p>
-
-        <div class="hero-actions">
+        <nav class="nav-links" aria-label="Primary navigation">
           <a
-            href="https://t.me/sovereign_business_operator_bot"
-            class="button button-primary"
+            href="https://github.com/Ebubechukwucyber/sovereign-business-operator"
             target="_blank"
             rel="noopener noreferrer"
           >
-            Open live demo
-            <span aria-hidden="true">↗</span>
+            GitHub
+          </a>
+
+          <a href="#demo-path">Demo path</a>
+          <a href="#payments">Payments</a>
+        </nav>
+
+        <div class="live-status">
+          <span class="live-dot"></span>
+          Live on Base
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+
+  <main id="top">
+
+    <!-- =========================================
+         HERO
+    ========================================= -->
+
+    <section class="hero">
+
+      <div class="hero-background-text">
+        SOVEREIGN
+      </div>
+
+      <div class="container">
+
+        <div class="hero-panel">
+
+          <div class="hero-topline">
+            <div class="hero-product-label">
+              AI Agent · Telegram · Base USDC
+            </div>
+
+            <div class="hero-product-label">
+              Service Business Infrastructure
+            </div>
+          </div>
+
+
+          <div class="hero-main">
+
+            <!-- LEFT COPY -->
+
+            <div class="hero-copy-block">
+
+              <div class="hero-kicker">
+                AI Business Operator
+              </div>
+
+              <h1>
+                Run a service business from one AI operator.
+              </h1>
+
+              <p class="hero-copy">
+                Sovereign qualifies clients, prices work within
+                <strong>owner-defined rules</strong>, issues scoped proposals,
+                verifies USDC transfers on Base through deterministic on-chain
+                checks, and delivers receipts and invoices — all inside
+                Telegram.
+              </p>
+
+              <div class="hero-actions">
+
+                <a
+                  href="https://t.me/sovereign_business_operator_bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="button button-primary"
+                >
+                  OPEN LIVE DEMO
+                  <span>↗</span>
+                </a>
+
+                <a
+                  href="https://github.com/Ebubechukwucyber/sovereign-business-operator"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="button button-secondary"
+                >
+                  VIEW SOURCE
+                  <span>↗</span>
+                </a>
+
+              </div>
+
+            </div>
+
+
+            <!-- RIGHT AI OPERATOR VISUAL -->
+
+            <div class="operator-stage">
+
+              <div class="operator-orbit"></div>
+
+              <!-- AI Operator Core -->
+
+              <div class="operator-core">
+
+                <div class="core-top">
+                  <span class="core-label">
+                    Sovereign System
+                  </span>
+
+                  <span class="core-live">
+                    ACTIVE
+                  </span>
+                </div>
+
+                <div class="core-center">
+
+                  <div class="core-symbol">
+                    S
+                  </div>
+
+                  <div class="core-title">
+                    AI Operator
+                  </div>
+
+                  <div class="core-subtitle">
+                    Business workflow engine
+                  </div>
+
+                </div>
+
+                <div class="core-bottom">
+                  <span>TELEGRAM</span>
+                  <span>BASE</span>
+                  <span>USDC</span>
+                </div>
+
+              </div>
+
+
+              <!-- Floating AI Card -->
+
+              <div class="float-card card-ai">
+                <div class="float-icon">
+                  AI
+                </div>
+
+                <div>
+                  <small>Sovereign</small>
+                  <strong>Business AI Operator</strong>
+                </div>
+              </div>
+
+
+              <!-- Floating Pricing Card -->
+
+              <div class="float-card card-pricing">
+                <div class="float-icon">
+                  $
+                </div>
+
+                <div>
+                  <small>AI Pricing</small>
+                  <strong>Owner Rules Applied</strong>
+                </div>
+              </div>
+
+
+              <!-- Floating Payment Card -->
+
+              <div class="float-card card-payment">
+                <div class="float-icon payment-icon">
+                  ✓
+                </div>
+
+                <div>
+                  <small>Payment Network</small>
+                  <strong>Base USDC · 8453</strong>
+                </div>
+              </div>
+
+
+              <!-- Floating Proposal Card -->
+
+              <div class="float-card card-proposal">
+                <div class="float-icon">
+                  PDF
+                </div>
+
+                <div>
+                  <small>Scoped Proposal</small>
+                  <strong>Ready to Issue</strong>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <!-- Trust Strip -->
+
+        <div class="trust-strip">
+
+          <div class="trust-strip-inner">
+
+            <span class="trust-label">
+              Built for service businesses
+            </span>
+
+            <div class="trust-items">
+              <span class="trust-item">AI-Assisted</span>
+              <span class="trust-item">Owner-Controlled</span>
+              <span class="trust-item">Base Mainnet</span>
+              <span class="trust-item">USDC</span>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- =========================================
+         FEATURES
+    ========================================= -->
+
+    <section id="features">
+
+      <div class="container">
+
+        <div class="section-kicker">
+          The operating system
+        </div>
+
+        <h2 class="section-heading">
+          One conversation. One complete business loop.
+        </h2>
+
+        <p class="section-intro">
+          Sovereign handles the conversational business workflow while
+          deterministic rules protect owner pricing boundaries and on-chain
+          payment verification.
+        </p>
+
+
+        <div class="feature-grid">
+
+          <!-- Feature 01 -->
+
+          <article class="feature-card">
+
+            <div class="feature-number">
+              01
+            </div>
+
+            <div class="feature-icon">
+              ↗
+            </div>
+
+            <h3>
+              AI intake & pricing
+            </h3>
+
+            <p>
+              Qualifies jobs using size, complexity, deadline tightness and
+              market sense while keeping quotes inside the owner's minimum and
+              maximum pricing rules.
+            </p>
+
+            <div class="feature-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Feature 02 -->
+
+          <article class="feature-card">
+
+            <div class="feature-number">
+              02
+            </div>
+
+            <div class="feature-icon">
+              □
+            </div>
+
+            <h3>
+              Scoped proposals
+            </h3>
+
+            <p>
+              Converts the client conversation into a clear proposal with
+              scope, exclusions and business fit instead of leaving important
+              details buried in chat.
+            </p>
+
+            <div class="feature-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Feature 03 -->
+
+          <article class="feature-card">
+
+            <div class="feature-number">
+              03
+            </div>
+
+            <div class="feature-icon">
+              ✓
+            </div>
+
+            <h3>
+              On-chain USDC verification
+            </h3>
+
+            <p>
+              Verifies the submitted transaction against Base, the configured
+              USDC contract, recipient wallet, quoted amount, confirmations,
+              freshness and replay rules.
+            </p>
+
+            <div class="feature-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Feature 04 -->
+
+          <article class="feature-card">
+
+            <div class="feature-number">
+              04
+            </div>
+
+            <div class="feature-icon">
+              ◎
+            </div>
+
+            <h3>
+              Owner control panel
+            </h3>
+
+            <p>
+              Configure the business, services, pricing boundaries and payment
+              wallet. Manage orders, pause operations and mark work delivered
+              from Telegram.
+            </p>
+
+            <div class="feature-arrow">
+              →
+            </div>
+
+          </article>
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- =========================================
+         DEMO PATH
+    ========================================= -->
+
+    <section
+      id="demo-path"
+      class="demo-section"
+    >
+
+      <div class="container">
+
+        <div class="section-kicker">
+          Judge-ready walkthrough
+        </div>
+
+        <h2 class="section-heading">
+          The demo path in six moves.
+        </h2>
+
+        <p class="section-intro">
+          A complete service-business workflow demonstrated from one Telegram
+          conversation — from the first client message to a verified payment
+          and financial documents.
+        </p>
+
+
+        <div class="demo-flow">
+
+          <!-- Step 1 -->
+
+          <article class="demo-step">
+
+            <div class="step-number">
+              01 / START
+            </div>
+
+            <h3>
+              Open the operator
+            </h3>
+
+            <p>
+              Launch Sovereign Business Operator in Telegram and begin a new
+              client conversation.
+            </p>
+
+            <div class="step-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Step 2 -->
+
+          <article class="demo-step">
+
+            <div class="step-number">
+              02 / ORDER
+            </div>
+
+            <h3>
+              Describe the job
+            </h3>
+
+            <p>
+              Complete the conversational intake with the service requirements,
+              job details and delivery timeline.
+            </p>
+
+            <div class="step-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Step 3 -->
+
+          <article class="demo-step">
+
+            <div class="step-number">
+              03 / PROPOSAL
+            </div>
+
+            <h3>
+              Receive the scope
+            </h3>
+
+            <p>
+              The AI assists with pricing within owner rules and generates a
+              scoped proposal for the client.
+            </p>
+
+            <div class="step-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Step 4 -->
+
+          <article class="demo-step">
+
+            <div class="step-number">
+              04 / PAY
+            </div>
+
+            <h3>
+              Send USDC on Base
+            </h3>
+
+            <p>
+              The client pays the quoted amount in USDC to the configured
+              business wallet on Base mainnet.
+            </p>
+
+            <div class="step-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Step 5 -->
+
+          <article class="demo-step">
+
+            <div class="step-number">
+              05 / TX HASH
+            </div>
+
+            <h3>
+              Submit the transaction
+            </h3>
+
+            <p>
+              The client pastes the transaction hash and the deterministic
+              verifier inspects the transfer on-chain.
+            </p>
+
+            <div class="step-arrow">
+              →
+            </div>
+
+          </article>
+
+
+          <!-- Step 6 -->
+
+          <article class="demo-step">
+
+            <div class="step-number">
+              06 / DOCUMENTS
+            </div>
+
+            <h3>
+              Issue receipt & invoice
+            </h3>
+
+            <p>
+              After successful on-chain verification, Sovereign sends the
+              payment receipt and invoice to the relevant parties.
+            </p>
+
+          </article>
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- =========================================
+         PAYMENT NETWORK
+    ========================================= -->
+
+    <section
+      id="payments"
+      class="payment-section"
+    >
+
+      <div class="container">
+
+        <div class="section-kicker">
+          Payment network
+        </div>
+
+        <h2 class="section-heading">
+          AI operates the business. The chain verifies the money.
+        </h2>
+
+
+        <div class="payment-panel">
+
+          <div class="payment-grid">
+
+            <!-- Payment Copy -->
+
+            <div>
+
+              <h3 class="payment-title">
+                A hard trust boundary between intelligence and settlement.
+              </h3>
+
+              <p class="payment-copy">
+                Sovereign uses AI for intake, pricing assistance and proposal
+                generation. Payment confirmation is handled separately through
+                <strong>deterministic on-chain verification rules</strong>.
+              </p>
+
+              <div class="security-statement">
+                The AI never confirms payment. A transaction must satisfy the
+                chain verification rules before it can be treated as confirmed.
+              </div>
+
+            </div>
+
+
+            <!-- Verification Details -->
+
+            <div>
+
+              <div class="network-chips">
+
+                <span class="chip chip-highlight">
+                  Base
+                </span>
+
+                <span class="chip">
+                  Chain 8453
+                </span>
+
+                <span class="chip chip-highlight">
+                  USDC
+                </span>
+
+                <a
+                  href="https://basescan.org"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="chip"
+                >
+                  basescan.org ↗
+                </a>
+
+              </div>
+
+
+              <div class="verification-list">
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Transaction succeeded
+                </div>
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Correct Base network
+                </div>
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Correct USDC contract
+                </div>
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Recipient matches owner wallet
+                </div>
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Amount meets quoted payment
+                </div>
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Required confirmations reached
+                </div>
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Transaction freshness checked
+                </div>
+
+                <div class="verification-item">
+                  <span class="verification-check">✓</span>
+                  Transaction hash replay blocked
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- =========================================
+         FINAL CTA
+    ========================================= -->
+
+    <section class="final-cta">
+
+      <div class="final-cta-content container">
+
+        <div class="section-kicker">
+          One operator. One business loop.
+        </div>
+
+        <h2>
+          Turn Telegram conversations into quotes, proposals and verifiable payments.
+        </h2>
+
+        <p>
+          Sovereign Business Operator gives service businesses an intelligent
+          operating layer without asking AI to make deterministic financial
+          decisions.
+        </p>
+
+        <div class="hero-actions">
+
+          <a
+            href="https://t.me/sovereign_business_operator_bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="button button-primary"
+          >
+            OPEN LIVE DEMO
+            <span>↗</span>
           </a>
 
           <a
             href="https://github.com/Ebubechukwucyber/sovereign-business-operator"
-            class="button button-secondary"
             target="_blank"
             rel="noopener noreferrer"
+            class="button button-secondary"
           >
-            Inspect the source
+            VIEW SOURCE
+            <span>↗</span>
           </a>
+
         </div>
+
       </div>
+
     </section>
 
   </main>
 
+
+  <!-- =========================================
+       FOOTER
+  ========================================= -->
+
   <footer>
+
     <div class="container footer-inner">
+
       <span>
         © 2026 Sovereign Business Operator
       </span>
@@ -1049,10 +2011,13 @@
         GitHub ↗
       </a>
 
-      <span>Orion Agents Builder Hackathon</span>
+      <span>
+        Orion Agents Builder Hackathon
+      </span>
+
     </div>
+
   </footer>
 
 </body>
 </html>
-```
