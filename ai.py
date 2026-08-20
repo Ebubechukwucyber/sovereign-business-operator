@@ -834,14 +834,16 @@ def template_proposal(
 def _llm_config():
     """
     Prefer project config env vars; fall back to OPENAI_* names.
+    Default endpoint is Groq (free, OpenAI-compatible).
     """
     api_key = (
         os.getenv("LLM_API_KEY", "").strip()
         or os.getenv("OPENAI_API_KEY", "").strip()
+        or os.getenv("GROQ_API_KEY", "").strip()
     )
     base_url = (
         os.getenv("LLM_BASE_URL", "").strip()
-        or "https://api.openai.com/v1"
+        or "https://api.groq.com/openai/v1"
     ).rstrip("/")
     model = (
         os.getenv("LLM_MODEL", "").strip()
@@ -872,14 +874,20 @@ async def llm_chat(
     payload = {
         "model": model,
         "temperature": temperature,
+        "max_tokens": 2048,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
     }
 
+    # Helps Groq / OpenAI-compatible models return pure JSON
+    # when the prompt asks for JSON only.
+    if "json" in (system + user).lower():
+        payload["response_format"] = {"type": "json_object"}
+
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{base_url}/chat/completions",
                 headers={
@@ -888,7 +896,28 @@ async def llm_chat(
                 },
                 json=payload,
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                # Retry once without response_format (some models reject it)
+                if "response_format" in payload:
+                    payload.pop("response_format", None)
+                    response = await client.post(
+                        f"{base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+                if response.status_code >= 400:
+                    try:
+                        print(
+                            "LLM error:",
+                            response.status_code,
+                            response.text[:500],
+                        )
+                    except Exception:
+                        pass
+                    return ""
             data = response.json()
 
         choices = data.get("choices") or []
@@ -897,7 +926,11 @@ async def llm_chat(
 
         message = choices[0].get("message") or {}
         return clean_text(message.get("content", ""))
-    except Exception:
+    except Exception as exc:
+        try:
+            print("LLM request failed:", exc)
+        except Exception:
+            pass
         return ""
 
 
@@ -990,23 +1023,74 @@ Rules:
 - no markdown, no extra text outside JSON
 """
 
+    def _fallback(reason: str) -> dict:
+        mid = _clamp_price(
+            (minimum + maximum) / 2,
+            minimum,
+            maximum,
+        )
+        return {
+            "price": mid,
+            "complexity": "MEDIUM",
+            "reasoning": reason,
+            "in_scope": [],
+            "out_of_scope": [],
+            "min_price": minimum,
+            "max_price": maximum,
+            "pricing_source": "bounds_fallback",
+        }
+
+    api_key, base_url, model = _llm_config()
+    if not api_key:
+        print(
+            "AI pricing: no API key "
+            "(set LLM_API_KEY or GROQ_API_KEY)"
+        )
+        return _fallback(
+            f"No LLM key configured; used midpoint "
+            f"of owner range ${minimum:.2f}–${maximum:.2f}."
+        )
+
     raw = await llm_chat(system, user, temperature=0.2)
     if not raw:
-        return None
+        print(
+            "AI pricing: empty LLM response "
+            f"(model={model}, base={base_url})"
+        )
+        return _fallback(
+            f"LLM unavailable; used midpoint "
+            f"of owner range ${minimum:.2f}–${maximum:.2f}."
+        )
 
-    # Extract JSON object even if model wraps it
-    match = re.search(r"\{[\s\S]*\}", raw)
+    # Strip markdown fences Groq models sometimes add
+    cleaned = raw.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    match = re.search(r"\{[\s\S]*\}", cleaned)
     if not match:
-        return None
+        print("AI pricing: no JSON object in response:", cleaned[:300])
+        return _fallback(
+            f"LLM response unreadable; used midpoint "
+            f"${minimum:.2f}–${maximum:.2f}."
+        )
 
     try:
         data = json.loads(match.group(0))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        print("AI pricing: JSON parse failed:", exc, cleaned[:300])
+        return _fallback(
+            f"LLM JSON parse failed; used midpoint "
+            f"${minimum:.2f}–${maximum:.2f}."
+        )
 
     price = safe_float(data.get("price"), 0)
     if price <= 0:
-        return None
+        print("AI pricing: invalid price in JSON:", data)
+        return _fallback(
+            f"LLM returned invalid price; used midpoint "
+            f"${minimum:.2f}–${maximum:.2f}."
+        )
 
     price = _clamp_price(price, minimum, maximum)
 
@@ -1040,6 +1124,7 @@ Rules:
         ],
         "min_price": minimum,
         "max_price": maximum,
+        "pricing_source": "ai",
     }
 
 

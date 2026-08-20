@@ -631,7 +631,44 @@ def calculate_business_price(
     owner,
     answers,
 ):
+    """
+    Price from rules engine when possible.
+    Always fall back to owner min/max so a quote can still
+    be issued if detailed business_rules are empty or AI fails.
+    """
     rules = get_rules(owner)
+
+    # Seed rules from owner min/max so the engine has bounds
+    # even when business_rules JSON was never configured.
+    min_price = safe_float(
+        row_get(owner, "min_price", 150),
+        150,
+    )
+    max_price = safe_float(
+        row_get(owner, "max_price", 400),
+        400,
+    )
+    if min_price <= 0:
+        min_price = 150.0
+    if max_price < min_price:
+        max_price = min_price
+
+    if not isinstance(rules, dict):
+        rules = {}
+    else:
+        rules = dict(rules)
+
+    rules.setdefault("enabled", True)
+    rules.setdefault("currency", "USD")
+    rules.setdefault("model", "fixed")
+    rules.setdefault("minimum", min_price)
+    rules.setdefault("maximum", max_price)
+    # Fixed model needs a base_fee — use midpoint of band
+    if safe_float(rules.get("base_fee"), 0) <= 0:
+        rules["base_fee"] = round(
+            (min_price + max_price) / 2,
+            2,
+        )
 
     analysis = analyze_project(
         owner,
@@ -687,42 +724,35 @@ def calculate_business_price(
         complexity=complexity,
     )
 
-    if not result.get(
-        "success",
-        False,
-    ):
+    if result.get("success") and result.get("price") is not None:
+        price = round(float(result["price"]), 2)
+        # Keep inside owner band
+        price = max(min_price, min(max_price, price))
         return (
-            0,
+            price,
             {
                 **analysis,
-                "pricing_error": result.get(
-                    "reason",
-                    "Unable to calculate price.",
-                ),
                 "pricing_result": result,
+                "pricing_source": "rules",
             },
         )
 
-    price = result.get("price")
-
-    if price is None:
-        return (
-            0,
-            {
-                **analysis,
-                "pricing_error": (
-                    "Pricing engine returned "
-                    "no price."
-                ),
-                "pricing_result": result,
-            },
-        )
-
+    # Last resort: never block the client with price 0
+    fallback = round((min_price + max_price) / 2, 2)
     return (
-        round(float(price), 2),
+        fallback,
         {
             **analysis,
+            "pricing_error": result.get(
+                "reason",
+                "Used owner min/max midpoint fallback.",
+            ),
             "pricing_result": result,
+            "pricing_source": "min_max_fallback",
+            "cushion_applied": analysis.get(
+                "cushion_applied",
+                "min_max_midpoint",
+            ),
         },
     )
 
@@ -1136,10 +1166,14 @@ async def finish_intake(
 
     # Prefer AI estimate (clamped to owner min/max).
     # Fall back to the existing rule engine so jobs never break.
-    ai_estimate = await estimate_price_with_ai(
-        owner,
-        answers,
-    )
+    ai_estimate = None
+    try:
+        ai_estimate = await estimate_price_with_ai(
+            owner,
+            answers,
+        )
+    except Exception as error:
+        print("AI pricing failed:", error)
 
     if ai_estimate and ai_estimate.get("price", 0) > 0:
         price = float(ai_estimate["price"])
@@ -1181,13 +1215,21 @@ async def finish_intake(
     )
 
     if price <= 0:
-        await update.message.reply_text(
-            "We received your project request.\n\n"
-            "The studio needs to review the pricing "
-            "configuration before a quote can be issued."
+        min_price = safe_float(row_get(owner, "min_price", 150), 150)
+        max_price = safe_float(row_get(owner, "max_price", 400), 400)
+        if min_price <= 0:
+            min_price = 150.0
+        if max_price < min_price:
+            max_price = min_price
+        price = round((min_price + max_price) / 2, 2)
+        analysis = analysis or {}
+        analysis["pricing_source"] = "min_max_fallback"
+        analysis["internal_analysis"] = (
+            analysis.get("internal_analysis")
+            or "Quoted at the midpoint of the studio price range."
         )
-
-        return
+        analysis.setdefault("complexity", "MEDIUM")
+        analysis.setdefault("cushion_applied", "min_max_midpoint")
 
     # -----------------------------------------------------
     # GENERATE PROPOSAL
@@ -1500,10 +1542,14 @@ async def handle_edit_request(
     # REPRICE (AI first, rules fallback — same job path)
     # -----------------------------------------------------
 
-    ai_estimate = await estimate_price_with_ai(
-        owner,
-        answers,
-    )
+    ai_estimate = None
+    try:
+        ai_estimate = await estimate_price_with_ai(
+            owner,
+            answers,
+        )
+    except Exception as error:
+        print("AI reprice failed:", error)
 
     if ai_estimate and ai_estimate.get("price", 0) > 0:
         price = float(ai_estimate["price"])
@@ -1545,13 +1591,20 @@ async def handle_edit_request(
     )
 
     if price <= 0:
-        await update.message.reply_text(
-            "Your changes were saved, but the studio "
-            "needs to review the pricing configuration "
-            "before issuing a revised quote."
+        min_price = safe_float(row_get(owner, "min_price", 150), 150)
+        max_price = safe_float(row_get(owner, "max_price", 400), 400)
+        if min_price <= 0:
+            min_price = 150.0
+        if max_price < min_price:
+            max_price = min_price
+        price = round((min_price + max_price) / 2, 2)
+        analysis = analysis or {}
+        analysis["pricing_source"] = "min_max_fallback"
+        analysis.setdefault("complexity", "MEDIUM")
+        analysis.setdefault(
+            "internal_analysis",
+            "Revised quote at the midpoint of the studio price range.",
         )
-
-        return ConversationHandler.END
 
     # -----------------------------------------------------
     # REGENERATE PROPOSAL
