@@ -665,11 +665,8 @@ def calculate_business_price(
     rules.setdefault("maximum", max_price)
     # Fixed model needs a base_fee — near minimum, not midpoint
     if safe_float(rules.get("base_fee"), 0) <= 0:
-        span = max(max_price - min_price, 0)
-        rules["base_fee"] = round(
-            min_price + span * 0.12,
-            2,
-        )
+        # Seed near minimum so simple jobs stay cheap
+        rules["base_fee"] = round(min_price, 2)
 
     analysis = analyze_project(
         owner,
@@ -745,11 +742,11 @@ def calculate_business_price(
     ).upper()
     span = max(max_price - min_price, 0)
     if complexity == "HIGH":
-        frac = 0.65
+        frac = 0.55
     elif complexity in ("MEDIUM", "MED"):
-        frac = 0.30
+        frac = 0.22
     else:
-        frac = 0.12
+        frac = 0.0  # simple → owner minimum
     fallback = round(min_price + span * frac, 2)
     return (
         fallback,
@@ -1234,7 +1231,7 @@ async def finish_intake(
         if max_price < min_price:
             max_price = min_price
         span = max(max_price - min_price, 0)
-        price = round(min_price + span * 0.12, 2)
+        price = round(min_price, 2)
         analysis = analysis or {}
         analysis["pricing_source"] = "min_max_fallback"
         analysis["internal_analysis"] = (
@@ -1610,7 +1607,7 @@ async def handle_edit_request(
             min_price = 150.0
         if max_price < min_price:
             max_price = min_price
-        price = round(min_price + max(max_price - min_price, 0) * 0.12, 2)
+        price = round(min_price, 2)
         analysis = analysis or {}
         analysis["pricing_source"] = "min_max_fallback"
         analysis.setdefault("complexity", "MEDIUM")

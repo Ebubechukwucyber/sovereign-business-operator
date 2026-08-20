@@ -986,26 +986,34 @@ async def estimate_price_with_ai(owner, answers) -> dict | None:
     ) or "- (no answers)"
 
     system = (
-        "You price real client jobs for a service business. "
-        "Be commercially sensible: a small/simple request "
-        "must be near the minimum of the price band, not "
-        "the middle or maximum. Only large, complex, or "
-        "urgent work approaches the maximum. "
-        "Never invent services. JSON only."
+        "You are a commercial pricing analyst for a real "
+        "local service business. Quote like a careful human "
+        "shop owner: match size, delivery tightness, and "
+        "everyday market prices for that kind of job in a "
+        "typical developing-market / everyday-customer "
+        "context (prices often lower than US retail). "
+        "Owner min/max are hard limits. JSON only."
     )
 
     user = f"""
 Business: {business_name}
 Niche: {niche or "not specified"}
-Services this business offers:
+Services offered:
 {services or "not specified"}
 
-Owner price band (USD) — hard limits:
+Hard price band (USD):
 minimum = {minimum}
 maximum = {maximum}
 
 Client requirements:
 {answers_block}
+
+Judge the job on:
+1) SIZE — single/small/basic vs bulk/large/event
+2) DELIVERY TIGHTNESS — same-day/ASAP/urgent vs flexible days
+3) COMPLEXITY — plain item vs heavy custom work
+4) MARKET SENSE — everyday local price for this service type,
+   not a luxury or US-agency rate
 
 Return ONLY valid JSON:
 {{
@@ -1016,70 +1024,168 @@ Return ONLY valid JSON:
   "out_of_scope": ["..."]
 }}
 
-Pricing rules (important):
+Price rules (must follow):
 - price MUST be between {minimum} and {maximum}
-- LOW complexity / small / simple / single item → price
-  near {minimum} (roughly the lower 15–25% of the band)
-- MEDIUM → around the lower half of the band
-- HIGH / large / urgent / multi-part → higher in the band,
-  still at or below {maximum}
-- Do NOT default to the midpoint or the maximum
-- A casual small order must NOT look like a luxury quote
+- Tiny / single / simple / non-urgent → use {minimum}
+  or only a few percent above it
+- Average everyday order → lower third of the band
+- Large, custom, or very tight deadline → higher in band
+- Never default to midpoint or maximum for a small job
+- Prefer common street/market rates for the niche when unsure
 - in_scope only from client need + offered services
 - no markdown, no text outside JSON
 """
 
-    def _band_price(complexity: str = "LOW") -> float:
+    def _answers_text() -> str:
+        return " ".join(
+            clean_text(v) for v in (answers or {}).values()
+        ).lower()
+
+    def _extract_deadline_days(text: str):
+        match = re.search(
+            r"(\d+(?:\.\d+)?)\s*(hour|hours|day|days|week|weeks)",
+            text,
+        )
+        if not match:
+            if any(
+                w in text
+                for w in (
+                    "today",
+                    "tonight",
+                    "asap",
+                    "urgent",
+                    "immediately",
+                    "same day",
+                    "same-day",
+                )
+            ):
+                return 0.5
+            return None
+        value = float(match.group(1))
+        unit = match.group(2)
+        if unit.startswith("hour"):
+            return max(value / 24.0, 0.1)
+        if unit.startswith("week"):
+            return value * 7.0
+        return value
+
+    def _size_score(text: str) -> float:
+        """0 = tiny, 1 = very large."""
+        score = 0.25
+        if re.search(
+            r"\b(1|one|single|a)\b",
+            text,
+        ) or any(
+            w in text
+            for w in (
+                "small",
+                "mini",
+                "simple",
+                "basic",
+                "just a",
+                "only one",
+                "cupcake",
+                "piece",
+            )
+        ):
+            score = 0.05
+        if any(
+            w in text
+            for w in (
+                "dozen",
+                "12",
+                "medium",
+                "party",
+                "box",
+            )
+        ):
+            score = max(score, 0.35)
+        if any(
+            w in text
+            for w in (
+                "large",
+                "bulk",
+                "wedding",
+                "corporate",
+                "event",
+                "50",
+                "100",
+                "hundred",
+            )
+        ):
+            score = max(score, 0.75)
+        # explicit quantity
+        qty = re.search(r"\b(\d{1,4})\b", text)
+        if qty:
+            n = int(qty.group(1))
+            if n <= 1:
+                score = min(score, 0.08)
+            elif n <= 6:
+                score = max(score, 0.2)
+            elif n <= 24:
+                score = max(score, 0.4)
+            else:
+                score = max(score, 0.7)
+        return min(max(score, 0.0), 1.0)
+
+    def _urgency_score(text: str) -> float:
+        """0 = relaxed, 1 = extreme rush."""
+        days = _extract_deadline_days(text)
+        if days is not None:
+            if days <= 1:
+                return 0.9
+            if days <= 2:
+                return 0.45
+            if days <= 5:
+                return 0.15
+            return 0.0
+        if any(
+            w in text
+            for w in (
+                "urgent",
+                "asap",
+                "today",
+                "tonight",
+                "immediately",
+            )
+        ):
+            return 0.85
+        return 0.1
+
+    def _complexity_label(size: float, urgency: float) -> str:
+        combined = size * 0.7 + urgency * 0.3
+        if combined >= 0.55:
+            return "HIGH"
+        if combined >= 0.28:
+            return "MEDIUM"
+        return "LOW"
+
+    def _smart_band_price() -> tuple[float, str]:
         """
-        Sensible position in the owner band.
-        Simple jobs stay near minimum — never default to mid.
+        Size + deadline tightness → position in owner band.
+        Tiny relaxed jobs sit on (or barely above) minimum.
         """
+        text = _answers_text()
+        size = _size_score(text)
+        urgency = _urgency_score(text)
+        complexity = _complexity_label(size, urgency)
+        # frac in [0, 1] of the owner band
+        frac = size * 0.55 + urgency * 0.35
+        # floor: absolute minimum for clearly tiny jobs
+        if size <= 0.1 and urgency <= 0.2:
+            frac = 0.0
+        elif size <= 0.15:
+            frac = min(frac, 0.08)
         span = max(maximum - minimum, 0)
-        level = (complexity or "LOW").upper()
-        if level == "HIGH":
-            frac = 0.65
-        elif level == "MEDIUM":
-            frac = 0.30
-        else:
-            frac = 0.12
-        return _clamp_price(
+        price = _clamp_price(
             minimum + span * frac,
             minimum,
             maximum,
         )
-
-    def _guess_complexity_from_answers() -> str:
-        text = " ".join(
-            clean_text(v) for v in (answers or {}).values()
-        ).lower()
-        high_terms = (
-            "urgent", "asap", "wedding", "corporate",
-            "large", "bulk", "custom design", "multi",
-            "complex", "premium", "hundred", "100+",
-        )
-        med_terms = (
-            "medium", "dozen", "party", "event", "custom",
-        )
-        small_terms = (
-            "small", "simple", "single", "one ", "basic",
-            "mini", "just a", "only",
-        )
-        if any(t in text for t in high_terms):
-            return "HIGH"
-        if any(t in text for t in small_terms) and not any(
-            t in text for t in high_terms
-        ):
-            return "LOW"
-        if any(t in text for t in med_terms):
-            return "MEDIUM"
-        # short sparse answers → treat as simple
-        if len(text) < 80:
-            return "LOW"
-        return "MEDIUM"
+        return price, complexity
 
     def _fallback(reason: str) -> dict:
-        complexity = _guess_complexity_from_answers()
-        price = _band_price(complexity)
+        price, complexity = _smart_band_price()
         return {
             "price": price,
             "complexity": complexity,
