@@ -1,7 +1,7 @@
 """
-Base Sepolia USDC payment verification.
+Base USDC payment verification.
 
-TESTNET PAYMENT INFRASTRUCTURE
+MAINNET PAYMENT INFRASTRUCTURE (Base)
 
 This module NEVER trusts a client-provided payment amount.
 
@@ -16,7 +16,7 @@ It verifies on-chain:
 7. Required confirmations exist.
 
 Network:
-    Base Sepolia
+    Base
 
 Token:
     USDC
@@ -73,7 +73,7 @@ def rpc_call(
     params=None,
 ):
     """
-    Execute a JSON-RPC request against Base Sepolia.
+    Execute a JSON-RPC request against Base.
     """
 
     if params is None:
@@ -127,7 +127,7 @@ def rpc_call(
     ) as exc:
 
         raise RuntimeError(
-            "Base Sepolia RPC request failed: "
+            "Base RPC request failed: "
             f"{exc}"
         ) from exc
 
@@ -144,7 +144,7 @@ def rpc_call(
 
         raise RuntimeError(
             "Invalid JSON returned by "
-            "Base Sepolia RPC."
+            "Base RPC."
         ) from exc
 
     if result.get("error"):
@@ -404,7 +404,7 @@ def get_chain_id():
 def verify_chain():
     """
     Make sure the configured RPC is actually
-    connected to Base Sepolia.
+    connected to the configured Base network.
     """
 
     chain_id = get_chain_id()
@@ -414,7 +414,7 @@ def verify_chain():
     ):
 
         raise RuntimeError(
-            "RPC endpoint is not Base Sepolia. "
+            "RPC endpoint chain ID mismatch. "
             f"Expected chain ID "
             f"{BASE_SEPOLIA_CHAIN_ID}, "
             f"got {chain_id}."
@@ -429,7 +429,7 @@ def verify_chain():
 
 def get_latest_block_number():
     """
-    Return the latest Base Sepolia block number.
+    Return the latest block number.
     """
 
     result = rpc_call(
@@ -511,7 +511,7 @@ def find_usdc_transfers(
 ):
     """
     Find USDC Transfer events emitted by the
-    configured Base Sepolia USDC contract.
+    configured Base USDC contract.
 
     Returns a list like:
 
@@ -655,7 +655,7 @@ def verify_usdc_payment(
     max_age_seconds=None,
 ):
     """
-    Verify a Base Sepolia USDC payment.
+    Verify a Base USDC payment.
 
     IMPORTANT:
 
@@ -667,7 +667,7 @@ def verify_usdc_payment(
     1. Transaction hash format.
     2. Recipient wallet format.
     3. USDC contract configuration.
-    4. Base Sepolia network.
+    4. Configured Base network.
     5. Transaction existence.
     6. Transaction mining.
     7. Transaction success.
@@ -728,7 +728,7 @@ def verify_usdc_payment(
             "confirmed": False,
             "status": "CONFIG_ERROR",
             "reason": (
-                "Base Sepolia USDC contract "
+                "Base USDC contract "
                 "is not configured correctly."
             ),
         }
@@ -809,7 +809,7 @@ def verify_usdc_payment(
             "status": "NOT_FOUND",
             "reason": (
                 "Transaction was not found "
-                "on Base Sepolia."
+                "on Base."
             ),
             "tx_hash": tx_hash,
         }
@@ -899,8 +899,7 @@ def verify_usdc_payment(
     # TIME WINDOW
     # =====================================================
     #
-    # Reject recycled old payments and hashes that
-    # predate the quote / payment instructions.
+    # A TX from the past cannot pay a new job.
     #
 
     try:
@@ -959,9 +958,8 @@ def verify_usdc_payment(
             "confirmed": False,
             "status": "TX_TOO_OLD",
             "reason": (
-                "This transaction is too old to count "
-                "for this payment. Send a new USDC "
-                "transfer after the quote is issued."
+                "This transaction is from the past "
+                "and cannot be used for this payment."
             ),
             "tx_hash": tx_hash,
             "tx_timestamp": tx_timestamp,
@@ -973,7 +971,6 @@ def verify_usdc_payment(
     except (TypeError, ValueError):
         min_timestamp = 0
 
-    # 60s grace for clock / block-time skew
     if min_timestamp and tx_timestamp < (min_timestamp - 60):
         return {
             "success": False,
@@ -982,7 +979,7 @@ def verify_usdc_payment(
             "reason": (
                 "This transaction was mined before "
                 "payment was requested for this job. "
-                "An older payment cannot be reused."
+                "A past payment cannot be reused."
             ),
             "tx_hash": tx_hash,
             "tx_timestamp": tx_timestamp,
@@ -1216,7 +1213,7 @@ def verify_usdc_payment(
         "block_number": transaction_block,
 
         "success_reason": (
-            "Confirmed Base Sepolia "
+            "Confirmed Base "
             "USDC payment."
         ),
     }

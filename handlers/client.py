@@ -219,7 +219,7 @@ async def notify_owner_payment_confirmed(
         f"Project #{job_id}\n"
         f"Client: {client_name}\n"
         f"Amount: {amount} USDC\n"
-        f"Network: Base Sepolia\n"
+        f"Network: Base\n"
         f"Confirmations: {confirmations}\n\n"
         f"TX hash:\n{tx_hash}\n\n"
         "The job has been marked PAID."
@@ -2463,7 +2463,7 @@ async def handle_paid(
             await update.message.reply_text(
                 f"Payment confirmed for Project #{job_id}.\n\n"
                 f"Amount: {paid_amount} USDC\n"
-                f"Network: Base Sepolia\n"
+                f"Network: Base\n"
                 f"Confirmations: {paid_confirmations}\n\n"
                 f"TX hash:\n{tx_hash}"
             )
