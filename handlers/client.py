@@ -829,10 +829,27 @@ async def start_client(
 ):
     context.user_data.clear()
 
+    from config import OWNER_TELEGRAM_ID
+
+    owner = get_owner(OWNER_TELEGRAM_ID)
+
+    business_name = "our studio"
+    niche = ""
+    services = ""
+
+    if owner:
+        business_name = clean_text(
+            row_get(owner, "name", "")
+        ) or "our studio"
+        niche = clean_text(row_get(owner, "niche", ""))
+        services = clean_text(
+            row_get(owner, "services_text", "")
+        )
+
     keyboard = [
         [
             InlineKeyboardButton(
-                "➕ Start a new project",
+                "➕ New order",
                 callback_data="new_order",
             )
         ],
@@ -844,29 +861,45 @@ async def start_client(
         ],
         [
             InlineKeyboardButton(
-                "🛠 What we offer",
+                "🛠 Our services",
                 callback_data="services",
             )
         ],
         [
             InlineKeyboardButton(
-                "💬 Contact the studio",
+                "💬 Contact us",
                 callback_data="contact_studio",
             )
         ],
     ]
 
-    text = (
-        "Welcome to Sovereign Studio.\n\n"
-        "This is your client workspace. You don't need to "
-        "guess what to do — use the buttons below.\n\n"
-        "How it works:\n"
-        "1. Start a new project and answer a few questions\n"
-        "2. Receive a professional proposal + quote\n"
-        "3. Pay in USDC when you're ready\n"
-        "4. Get receipt and invoice after confirmation\n\n"
-        "Tap Start a new project to begin."
+    # Organic welcome that reflects the configured business
+    lines = [f"Welcome to {business_name}."]
+
+    if niche:
+        lines.append(
+            f"We specialize in {niche}."
+        )
+    else:
+        lines.append(
+            "Glad you're here — we're ready to help."
+        )
+
+    if services:
+        lines.append("")
+        lines.append(f"What we offer: {services}")
+
+    lines.append("")
+    lines.append(
+        "Tell us what you need and we'll scope it, "
+        "send a clear proposal, and get you a quote."
     )
+    lines.append("")
+    lines.append(
+        "Tap New order when you're ready to begin."
+    )
+
+    text = "\n".join(lines)
 
     markup = InlineKeyboardMarkup(keyboard)
 
