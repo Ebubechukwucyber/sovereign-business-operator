@@ -832,25 +832,25 @@ async def start_client(
     keyboard = [
         [
             InlineKeyboardButton(
-                "➕ New Project",
+                "➕ Start a new project",
                 callback_data="new_order",
             )
         ],
         [
             InlineKeyboardButton(
-                "📦 My Orders",
+                "📦 My orders",
                 callback_data="my_orders",
             )
         ],
         [
             InlineKeyboardButton(
-                "🛠 Services",
+                "🛠 What we offer",
                 callback_data="services",
             )
         ],
         [
             InlineKeyboardButton(
-                "💬 Contact Studio",
+                "💬 Contact the studio",
                 callback_data="contact_studio",
             )
         ],
@@ -858,8 +858,14 @@ async def start_client(
 
     text = (
         "Welcome to Sovereign Studio.\n\n"
-        "Tell us what you need and we'll help "
-        "turn it into a clear project scope and quote."
+        "This is your client workspace. You don't need to "
+        "guess what to do — use the buttons below.\n\n"
+        "How it works:\n"
+        "1. Start a new project and answer a few questions\n"
+        "2. Receive a professional proposal + quote\n"
+        "3. Pay in USDC when you're ready\n"
+        "4. Get receipt and invoice after confirmation\n\n"
+        "Tap Start a new project to begin."
     )
 
     markup = InlineKeyboardMarkup(keyboard)

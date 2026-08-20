@@ -146,8 +146,17 @@ async def owner_home(update, context):
     if not owner or not owner["setup_complete"]:
 
         await message.reply_text(
-            "Your business isn't configured yet.\n\n"
-            "Use /setup to get started."
+            "Welcome, owner.\n\n"
+            "Your studio is not configured yet. "
+            "Follow these steps once:\n\n"
+            "1. Send /setup — business name, niche, "
+            "services, and pricing\n"
+            "2. Open Payments — set your USDC wallet "
+            "(Base Sepolia for demo)\n"
+            "3. Optional: Signature — name/title on invoices\n\n"
+            "After that, clients can start projects and pay. "
+            "You manage orders from this same bot.\n\n"
+            "Start now: /setup"
         )
 
         return
@@ -162,22 +171,35 @@ async def owner_home(update, context):
         or "Not configured"
     )
 
+    wallet_ok = wallet != "Not configured"
+    next_hint = ""
+    if not wallet_ok:
+        next_hint = (
+            "\n\nNext step: open Payments and set your "
+            "USDC receive wallet so clients can pay."
+        )
+
     await message.reply_text(
-        f"🏢 {owner['name']}\n\n"
+        f"🏢 {owner['name']} — Owner panel\n\n"
         f"Business type: "
         f"{owner['niche'] or 'Not specified'}\n"
-        f"Services/products: "
+        f"Services: "
         f"{owner['services_text'] or 'Not specified'}\n\n"
         f"💵 Price range: "
         f"${float(owner['min_price'] or 0):.2f}"
         f" - "
         f"${float(owner['max_price'] or 0):.2f}\n"
-        f"⏱ Delivery: "
+        f"⏱ Default delivery: "
         f"{owner['default_days']} days\n"
-        f"💳 Base USDC: "
-        f"{'Configured' if wallet != 'Not configured' else 'Not configured'}\n"
+        f"💳 USDC wallet: "
+        f"{'Configured' if wallet_ok else 'Not configured'}\n"
         f"✍️ Signature: {signature_name}\n\n"
-        "Owner control panel.",
+        "What you can do here:\n"
+        "• Orders — view jobs, mark delivered, resend docs\n"
+        "• Business Settings — name, niche, prices\n"
+        "• Payments — USDC wallet\n"
+        "• Signature — invoice/receipt sign-off"
+        f"{next_hint}",
         reply_markup=owner_menu_keyboard(),
     )
 
@@ -194,7 +216,10 @@ async def setup_start(update, context):
     context.user_data["setup"] = {}
 
     await update.message.reply_text(
-        "Let's configure your business.\n\n"
+        "Owner setup — step 1 of 6\n\n"
+        "We'll set your studio name, niche, services, "
+        "and pricing. You can change everything later "
+        "in Business Settings.\n\n"
         "What is your business name?"
     )
 
