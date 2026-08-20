@@ -1,16 +1,17 @@
 # Sovereign Business Operator
 
-**AI-operated service business on Telegram — qualify, quote, collect USDC on Base, verify on-chain, deliver documents.**
+**AI business operator on Telegram — qualify, quote within owner rules, collect USDC on Base, verify on-chain, deliver documents.**
 
 [![Network](https://img.shields.io/badge/network-Base%20Mainnet-168AAD)](https://basescan.org)
 [![Token](https://img.shields.io/badge/token-USDC-2A9D8F)](#payment--verification)
 [![Interface](https://img.shields.io/badge/interface-Telegram-26A5E4)](https://telegram.org)
 [![Status](https://img.shields.io/badge/status-mainnet%20ready-12233F)](#)
 
-Sovereign Business Operator is a business-agnostic operating system for service studios. An owner configures niche, pricing, wallet, and brand once. Clients complete intake in Telegram, receive a professional proposal, pay in **USDC on Base**, and get receipts and invoices after the chain confirms the transfer.
+Sovereign Business Operator is a business-agnostic AI operator for service studios. An owner configures niche, pricing bounds, wallet, and brand once. Clients complete intake in Telegram, receive a professional proposal, pay in **USDC on Base**, and get receipts and invoices after the chain confirms the transfer.
 
 > **Payment network:** Base mainnet (chain id `8453`) · Official Circle USDC  
-> **Live demo:** Telegram bot (see repository description / landing page for the current link)
+> **Live demo:** the Telegram bot (see landing page / repo description for the link)  
+> **Landing page:** [`web/index.html`](web/index.html)
 
 ---
 
@@ -48,7 +49,7 @@ Sovereign collapses that into one Telegram operator:
 | Pain | What Sovereign does |
 |------|---------------------|
 | Unqualified leads | Structured intake + job record |
-| Slow quoting | AI-assisted proposal + PDF |
+| Slow quoting | AI pricing + scoped proposal PDF |
 | Payment disputes | On-chain USDC verification on Base |
 | Admin overhead | Receipt + invoice auto-issued |
 | Context switching | Owner controls the business from Telegram |
@@ -65,14 +66,15 @@ Sovereign collapses that into one Telegram operator:
 Client (Telegram)
    → Telegram Bot API
    → handlers/client.py | handlers/owner.py
-   → AI pricing & proposals (within owner min/max)
+   → AI pricing (size, deadline tightness, market sense)
+   → AI scoped proposals (within owner min/max)
    → SQLite job store
    → PDF generator (proposal / invoice / receipt)
    → payment_verifier.py
-   → Base RPC (USDC Transfer events)
+   → Base mainnet RPC (USDC Transfer events)
 ```
 
-**Owner configuration** (wallet, pricing rules, signature) drives behavior without code changes per business.
+**Owner configuration** (wallet, pricing bounds, signature) drives behavior without code changes per business.
 
 ---
 
@@ -90,7 +92,7 @@ NEW
   → CLOSED            archive
 ```
 
-Payment statuses are separate from job status (`UNPAID` → `AWAITING_PAYMENT` → `TX_SUBMITTED` → `VERIFYING` → `CONFIRMED` / `REJECTED`).
+Payment statuses are tracked separately (`UNPAID` → `AWAITING_PAYMENT` → `TX_SUBMITTED` → `VERIFYING` → `CONFIRMED` / `REJECTED`).
 
 ---
 
@@ -98,26 +100,28 @@ Payment statuses are separate from job status (`UNPAID` → `AWAITING_PAYMENT` �
 
 ### Client
 
-- Start project / continue intake (natural prompts)  
-- **AI-assisted pricing** within owner min/max bounds  
-- **Scoped proposals** (what’s needed vs out of scope)  
-- Professional proposal PDF  
-- **Payment** available as soon as the quote lands  
-- One-tap copy wallet address  
-- TX hash submission with validation  
-- On-chain verification feedback  
+- Welcome text uses the **owner’s business name, niche, and services**  
+- Natural intake prompts (not a cold form)  
+- **AI-assisted pricing** that weighs:
+  - job size (single / small vs bulk)
+  - delivery tightness (ASAP vs flexible)
+  - complexity
+  - everyday market sense  
+- Price always **clamped** to owner `min_price` / `max_price`  
+- Fallback heuristics if the LLM is unavailable (still never blocks the quote)  
+- **Scoped proposal PDF** (in scope / out of scope / business fit)  
+- **Payment** button available as soon as the proposal arrives  
+- Wallet address is **one-tap copy** (`<code>` in Telegram)  
+- TX hash validation + on-chain verification  
 - Receipt + invoice after confirmation  
 
 ### Owner
 
-- Business profile (name, niche, services, tone)  
-- Min / max price and default delivery window  
-- USDC wallet on **Base mainnet**  
+- `/setup` — name, niche, services, min/max price, delivery days  
+- **Payments** — Base mainnet USDC receive wallet  
 - Signature name / title for documents  
-- Order list with pause / resume  
-- **Mark delivered** (notifies client)  
-- Close order  
-- Re-send receipt / invoice  
+- Orders list, pause / resume  
+- **Mark delivered**, close job, resend financial docs  
 
 ### Trust layer
 
@@ -126,6 +130,7 @@ Payment statuses are separate from job status (`UNPAID` → `AWAITING_PAYMENT` �
 - Confirmation depth check  
 - Rejects stale transactions (time window)  
 - Rejects confirmed-hash reuse across jobs  
+- **LLM never marks payment confirmed** — only the chain verifier does  
 
 ---
 
@@ -137,9 +142,9 @@ Payment statuses are separate from job status (`UNPAID` → `AWAITING_PAYMENT` �
 | Language | Python 3.11+ |
 | Storage | SQLite |
 | Documents | ReportLab PDFs |
-| AI | Configurable LLM endpoint (pricing + proposals) |
-| Chain | **Base mainnet** (chain id 8453) |
-| Token | USDC (6 decimals) — Circle native on Base |
+| AI | OpenAI-compatible LLM (Groq recommended) |
+| Chain | **Base mainnet** (chain id `8453`) |
+| Token | Circle USDC on Base (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) |
 | RPC | JSON-RPC over HTTPS |
 
 ---
@@ -149,7 +154,7 @@ Payment statuses are separate from job status (`UNPAID` → `AWAITING_PAYMENT` �
 ```text
 sovereign-business-operator/
 ├── main.py                 # Bot wiring & handlers
-├── config.py               # Env-driven configuration (Base mainnet defaults)
+├── config.py               # Env config (Base mainnet defaults)
 ├── db.py                   # SQLite schema + job/payment APIs
 ├── ai.py                   # AI price estimate + proposal generation
 ├── pricing.py              # Deterministic pricing fallback
@@ -208,12 +213,12 @@ Open the bot in Telegram and send `/start`.
 |----------|----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | From BotFather |
 | `OWNER_TELEGRAM_ID` | Yes | Numeric Telegram user id of the studio owner |
-| `LLM_API_KEY` | Yes | Provider key for AI pricing & proposals |
-| `LLM_BASE_URL` | Yes | OpenAI-compatible base URL |
-| `LLM_MODEL` | Yes | Model name |
+| `LLM_API_KEY` | Recommended | Groq / OpenAI-compatible key |
+| `LLM_BASE_URL` | Recommended | Default `https://api.groq.com/openai/v1` |
+| `LLM_MODEL` | Recommended | e.g. `llama-3.1-8b-instant` |
 | `BASE_CHAIN_ID` | No | Default `8453` (Base mainnet) |
 | `BASE_RPC_URL` | No | Default `https://mainnet.base.org` |
-| `BASE_USDC_CONTRACT` | No | Default Circle USDC on Base: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| `BASE_USDC_CONTRACT` | No | Circle USDC on Base |
 | `BASE_CONFIRMATIONS` | No | Default `3` |
 | `BASE_EXPLORER_URL` | No | Default `https://basescan.org` |
 | `PAYMENT_NETWORK` | No | Client-facing label (default `Base`) |
@@ -221,8 +226,11 @@ Open the bot in Telegram and send `/start`.
 | `PAYMENT_MAX_AGE_SECONDS` | No | Max age of a TX (anti-replay) |
 | `DATABASE_PATH` | No | SQLite path |
 
+Legacy `BASE_SEPOLIA_*` names still work as aliases.
 
-**Owner wallet:** configure a **Base mainnet** address that can receive USDC (bot → Payments). This is separate from the USDC token contract.
+**Owner wallet:** set a **Base mainnet** address that receives USDC (bot → Payments). This is separate from the USDC token contract.
+
+**Pricing tip:** set a realistic `min_price` / `max_price` for the business (e.g. bakery min `2` max `25`). Wide bands produce wide quotes; the AI stays inside the band and biases small/simple jobs toward the minimum.
 
 ---
 
@@ -240,7 +248,7 @@ Verification steps:
 6. Amount ≥ quoted amount  
 7. Enough confirmations  
 8. Time window (rejects ancient recycled transfers)  
-9. Replay guard (hash already **confirmed** on another job → reject)
+9. Replay guard (confirmed hash cannot pay a second job)
 
 After success:
 
@@ -287,8 +295,9 @@ worker: python main.py
 
 Static demo page: [`web/index.html`](web/index.html)
 
-1. Replace `YOUR_BOT_USERNAME` with your bot  
-2. Host with Netlify Drop, GitHub Pages, or Vercel  
+1. Replace `YOUR_BOT_USERNAME` with your bot username  
+2. Host with [Netlify Drop](https://app.netlify.com/drop), GitHub Pages (`/web`), or Vercel  
+3. Use that public URL as the hackathon **Website** field  
 
 ---
 
@@ -302,18 +311,20 @@ Static demo page: [`web/index.html`](web/index.html)
 | Freshness | Rejects TX outside payment window |
 | Replay | Confirmed hash cannot pay a second job |
 | Secrets | Bot token / LLM keys only in env, never in repo |
-| AI pricing | Suggestions clamped to owner min/max |
+| AI pricing | Suggestions clamped to owner min/max; LLM cannot confirm payment |
 
 ---
 
 ## Roadmap
 
 - [x] Intake, pricing, proposal PDF  
-- [x] AI pricing within owner bounds + scoped proposals  
+- [x] AI pricing (size, deadline, market sense) within owner bounds  
+- [x] Scoped business-fit proposals  
 - [x] Payment instructions + TX submission  
 - [x] On-chain USDC verification (Base mainnet)  
 - [x] Receipt + invoice generation  
 - [x] Owner deliver / close / resend docs  
+- [x] Landing page for demo / submission  
 - [ ] Multi-owner hosted SaaS  
 - [ ] Deliverable file upload from owner → client  
 
@@ -330,7 +341,7 @@ Static demo page: [`web/index.html`](web/index.html)
 
 ## License
 
-Specify your license of choice (MIT recommended for visibility).
+MIT (or specify your preferred license).
 
 ---
 
