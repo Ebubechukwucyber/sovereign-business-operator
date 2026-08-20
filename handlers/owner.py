@@ -152,7 +152,7 @@ async def owner_home(update, context):
             "1. Send /setup — business name, niche, "
             "services, and pricing\n"
             "2. Open Payments — set your USDC wallet "
-            "(Base Sepolia for demo)\n"
+            "(Base mainnet USDC)\n"
             "3. Optional: Signature — name/title on invoices\n\n"
             "After that, clients can start projects and pay. "
             "You manage orders from this same bot.\n\n"
@@ -432,8 +432,11 @@ async def setup_days(update, context):
         "💰 Pricing engine: ACTIVE\n"
         "💳 Payment network: Base\n"
         "🪙 Payment token: USDC\n\n"
-        "Next, configure your Base USDC wallet "
-        "and business signature from Owner Settings."
+        "Finish setup with the buttons below — "
+        "no need to send /start again.\n\n"
+        "Recommended next: Payments (USDC wallet), "
+        "then Signature.",
+        reply_markup=owner_menu_keyboard(),
     )
 
     return ConversationHandler.END

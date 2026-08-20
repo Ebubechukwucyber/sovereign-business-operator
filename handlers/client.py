@@ -1369,10 +1369,11 @@ async def edit_order_start(
     )
 
     if not match:
-        await query.edit_message_text(
-            "Invalid project."
+        await _send_callback_text(
+            query,
+            "Invalid project.",
+            prefer_new_message=True,
         )
-
         return ConversationHandler.END
 
     job_id = int(match.group(1))
@@ -1382,18 +1383,25 @@ async def edit_order_start(
         user_id,
         job_id,
     ):
-        await query.edit_message_text(
-            "You don't have access to this project."
+        await _send_callback_text(
+            query,
+            "You don't have access to this project.",
+            prefer_new_message=True,
         )
-
         return ConversationHandler.END
 
     context.user_data.clear()
     context.user_data["edit_job_id"] = job_id
 
-    await query.edit_message_text(
+    # Always send a new text message — Request Changes is often
+    # pressed on the proposal PDF, and edit_message_text fails
+    # on documents (same class of bug as Payment).
+    await _send_callback_text(
+        query,
         "Tell us what you'd like to change "
-        "about the project or proposal."
+        "about the project or proposal.\n\n"
+        "Type your changes in one message.",
+        prefer_new_message=True,
     )
 
     return EDIT_REQUEST
