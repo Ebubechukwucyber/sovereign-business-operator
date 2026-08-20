@@ -1,4 +1,5 @@
 import json
+import re
 import asyncio
 
 from telegram import (
@@ -6,30 +7,33 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+
 from telegram.ext import (
-    ConversationHandler,
     ContextTypes,
+    ConversationHandler,
 )
 
-from config import OWNER_TELEGRAM_ID
-
 from db import (
-    create_job,
-    get_client_jobs,
-    get_client_job,
-    get_job,
     get_owner,
+    create_job,
+    get_job,
+    get_client_job,
+    get_client_orders,
+    get_latest_order,
+    get_job_answers,
     save_job_answers,
     save_proposal,
     set_job_status,
+    client_owns_job,
+    save_job_analysis,
 )
 
-from agent import (
-    calculate_price,
+from ai import (
     generate_proposal,
     template_proposal,
 )
 
+from pricing import calculate_price
 from pdf_generator import create_proposal_pdf
 
 
@@ -37,37 +41,52 @@ from pdf_generator import create_proposal_pdf
 # STATES
 # =========================================================
 
-NAME = 200
-QUESTION_1 = 201
-QUESTION_2 = 202
-QUESTION_3 = 203
-QUESTION_4 = 204
-QUESTION_5 = 205
+NAME = 1
+QUESTION_1 = 2
+QUESTION_2 = 3
+QUESTION_3 = 4
+QUESTION_4 = 5
+QUESTION_5 = 6
+EDIT_REQUEST = 7
 
-EDIT_REQUEST = 210
+QUESTION_STATES = [
+    QUESTION_1,
+    QUESTION_2,
+    QUESTION_3,
+    QUESTION_4,
+    QUESTION_5,
+]
 
 
-QUESTIONS = [
+# =========================================================
+# QUESTIONS
+# =========================================================
+
+GENERIC_QUESTIONS = [
     (
-        "page_for",
-        "What is the page for?\n\n"
-        "For example: product, gym, event, personal brand."
+        "project",
+        "What do you need us to do for you?\n\n"
+        "Please describe the project or service in your own words.",
     ),
     (
-        "sections",
-        "How many pages or major sections do you need?"
+        "requirements",
+        "What are the main things you want included?",
+    ),
+    (
+        "quantity",
+        "How much work is involved?\n\n"
+        "For example: number of items, locations, people, "
+        "hours, pages, products, deliverables, or anything "
+        "else that helps us understand the size of the job.",
     ),
     (
         "deadline",
-        "What's your deadline?"
+        "When would you like the work completed?",
     ),
     (
-        "brand_copy",
-        "Do you already have your copy and brand assets?"
-    ),
-    (
-        "budget",
-        "What's your budget range?"
+        "additional",
+        "Is there anything else we should know before preparing "
+        "your quote?",
     ),
 ]
 
@@ -76,131 +95,632 @@ QUESTIONS = [
 # HELPERS
 # =========================================================
 
-def is_owner(update):
-    return (
-        update.effective_user.id
-        == OWNER_TELEGRAM_ID
+def clean_text(value):
+    if value is None:
+        return ""
+
+    return str(value).strip()
+
+
+def safe_float(value, fallback=0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def row_get(row, key, default=None):
+    """
+    Safely read a value from sqlite3.Row, dict or similar object.
+    """
+
+    if row is None:
+        return default
+
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        pass
+
+    try:
+        return row.get(key, default)
+    except AttributeError:
+        return default
+
+
+def get_rules(owner):
+    if not owner:
+        return {}
+
+    raw = row_get(
+        owner,
+        "business_rules",
+        "",
     )
 
+    if not raw:
+        return {}
 
-def load_answers(job):
+    if isinstance(raw, dict):
+        return raw
+
     try:
-        return json.loads(
-            job["answers"]
+        rules = json.loads(raw)
+
+        if isinstance(rules, dict):
+            return rules
+
+    except (
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        pass
+
+    return {}
+
+
+def rule_number(
+    rules,
+    key,
+    default=0,
+):
+    try:
+        return float(
+            rules.get(
+                key,
+                default,
+            )
         )
     except (
         TypeError,
-        json.JSONDecodeError,
+        ValueError,
     ):
-        return {}
+        return float(default)
 
 
-def is_paid_message(text):
-    return text.strip().lower() in {
-        "paid",
-        "i paid",
-        "i've paid",
-        "ive paid",
+def extract_number(text):
+    if not text:
+        return None
+
+    match = re.search(
+        r"\b(\d+(?:\.\d+)?)\b",
+        str(text),
+    )
+
+    if not match:
+        return None
+
+    try:
+        number = float(match.group(1))
+
+        if number <= 0:
+            return None
+
+        return number
+
+    except ValueError:
+        return None
+
+
+# =========================================================
+# TIMELINE
+# =========================================================
+
+def extract_timeline_from_text(text):
+    text = clean_text(text).lower()
+
+    if not text:
+        return None
+
+    patterns = [
+        (
+            r"(?:timeline|deadline|delivery|deliver|complete|completion)"
+            r".{0,80}?"
+            r"(\d+(?:\.\d+)?)\s*"
+            r"(day|days|week|weeks)"
+        ),
+        (
+            r"(?:change|make|move|reduce|increase|set)"
+            r".{0,80}?"
+            r"(\d+(?:\.\d+)?)\s*"
+            r"(day|days|week|weeks)"
+        ),
+        (
+            r"\bwithin\s+"
+            r"(\d+(?:\.\d+)?)\s*"
+            r"(day|days|week|weeks)\b"
+        ),
+        (
+            r"\bin\s+"
+            r"(\d+(?:\.\d+)?)\s*"
+            r"(day|days|week|weeks)\b"
+        ),
+        (
+            r"\b(\d+(?:\.\d+)?)\s*"
+            r"(day|days|week|weeks)\b"
+        ),
+    ]
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            text,
+            re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        try:
+            value = float(match.group(1))
+        except ValueError:
+            continue
+
+        if value <= 0:
+            continue
+
+        unit = match.group(2).lower()
+
+        if unit.startswith("week"):
+            unit = "week" if value == 1 else "weeks"
+        else:
+            unit = "day" if value == 1 else "days"
+
+        return f"{value:g} {unit}"
+
+    return None
+
+
+def normalize_timeline(value):
+    value = clean_text(value)
+
+    if not value:
+        return "7 days"
+
+    extracted = extract_timeline_from_text(value)
+
+    if extracted:
+        return extracted
+
+    return value
+
+
+# =========================================================
+# QUANTITY
+# =========================================================
+
+def extract_quantity_from_text(text):
+    text = clean_text(text).lower()
+
+    if not text:
+        return None
+
+    patterns = [
+        r"\b(?:for|of|with)\s+"
+        r"(\d+(?:\.\d+)?)\s+"
+        r"(?:people|person|persons|guests|guest|clients|"
+        r"items|item|units|unit|customers|customer)\b",
+
+        r"\b(\d+(?:\.\d+)?)\s+"
+        r"(?:people|person|persons|guests|guest|clients|"
+        r"items|item|units|unit|customers|customer)\b",
+
+        r"\b(?:quantity|qty|amount)\s*"
+        r"(?:to|of|=)?\s*"
+        r"(\d+(?:\.\d+)?)\b",
+
+        r"\b(?:make|change|set)\s+"
+        r"(?:it|quantity)\s+"
+        r"(?:to\s+)?"
+        r"(\d+(?:\.\d+)?)\b",
+    ]
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            text,
+            re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        try:
+            value = float(match.group(1))
+        except ValueError:
+            continue
+
+        if value <= 0:
+            continue
+
+        return f"{value:g}"
+
+    return None
+
+
+# =========================================================
+# PROJECT ANALYSIS
+# =========================================================
+
+def analyze_project(
+    owner,
+    answers,
+):
+    rules = get_rules(owner)
+
+    combined = " ".join(
+        clean_text(value)
+        for value in answers.values()
+    ).lower()
+
+    complexity_score = 0
+    reasons = []
+
+    quantity = extract_number(
+        answers.get(
+            "quantity",
+            "",
+        )
+    )
+
+    large_quantity_threshold = rule_number(
+        rules,
+        "large_quantity_threshold",
+        20,
+    )
+
+    if (
+        quantity is not None
+        and quantity >= large_quantity_threshold
+    ):
+        complexity_score += 2
+
+        reasons.append(
+            f"quantity of {quantity:g} exceeds "
+            f"the normal threshold of "
+            f"{large_quantity_threshold:g}"
+        )
+
+    high_complexity_terms = [
+        "urgent",
+        "complex",
+        "complicated",
+        "large",
+        "massive",
+        "custom",
+        "multiple locations",
+        "multiple teams",
+        "multiple people",
+        "many items",
+        "bulk",
+        "full package",
+        "end to end",
+        "everything",
+        "complete",
+        "advanced",
+        "high volume",
+    ]
+
+    found_terms = [
+        term
+        for term in high_complexity_terms
+        if term in combined
+    ]
+
+    if found_terms:
+        complexity_score += min(
+            len(found_terms),
+            3,
+        )
+
+        reasons.append(
+            "complexity indicators: "
+            + ", ".join(found_terms[:5])
+        )
+
+    rush_terms = [
+        "today",
+        "tonight",
+        "tomorrow",
+        "within 24 hours",
+        "24 hours",
+        "48 hours",
+        "as soon as possible",
+        "asap",
+        "urgent",
+        "immediately",
+    ]
+
+    if any(
+        term in combined
+        for term in rush_terms
+    ):
+        complexity_score += 1
+        reasons.append(
+            "rush delivery requested"
+        )
+
+    if complexity_score >= 4:
+        complexity = "HIGH"
+    elif complexity_score >= 2:
+        complexity = "MEDIUM"
+    else:
+        complexity = "NORMAL"
+
+    normal_buffer = rule_number(
+        rules,
+        "buffer_percent",
+        0,
+    )
+
+    complexity_buffer = rule_number(
+        rules,
+        "complexity_buffer_percent",
+        0,
+    )
+
+    days_buffer = rule_number(
+        rules,
+        "complexity_days_buffer",
+        0,
+    )
+
+    buffer_percent = normal_buffer
+
+    if complexity == "HIGH":
+        buffer_percent += complexity_buffer
+    elif complexity == "MEDIUM":
+        buffer_percent += complexity_buffer / 2
+
+    cushion_parts = []
+
+    if buffer_percent > 0:
+        cushion_parts.append(
+            f"{buffer_percent:g}% scope buffer"
+        )
+
+    if (
+        days_buffer > 0
+        and complexity in (
+            "MEDIUM",
+            "HIGH",
+        )
+    ):
+        cushion_parts.append(
+            f"{days_buffer:g} additional days"
+        )
+
+    if cushion_parts:
+        cushion_applied = " + ".join(
+            cushion_parts
+        )
+    else:
+        cushion_applied = "No additional cushion"
+
+    internal_analysis = (
+        f"Project complexity: {complexity}. "
+    )
+
+    if reasons:
+        internal_analysis += (
+            "Reasons: "
+            + "; ".join(reasons)
+            + "."
+        )
+    else:
+        internal_analysis += (
+            "No unusual complexity indicators "
+            "were detected."
+        )
+
+    return {
+        "complexity": complexity,
+        "complexity_score": complexity_score,
+        "buffer_percent": buffer_percent,
+        "days_buffer": days_buffer,
+        "cushion_applied": cushion_applied,
+        "internal_analysis": internal_analysis,
     }
 
 
-def main_menu_keyboard():
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "🆕 New Order",
-                    callback_data="new_order",
-                ),
-                InlineKeyboardButton(
-                    "📦 My Orders",
-                    callback_data="my_orders",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    "ℹ️ Services",
-                    callback_data="services",
-                ),
-                InlineKeyboardButton(
-                    "💬 Contact Studio",
-                    callback_data="contact_studio",
-                ),
-            ],
-        ]
+# =========================================================
+# PRICE
+# =========================================================
+
+def calculate_business_price(
+    owner,
+    answers,
+):
+    rules = get_rules(owner)
+
+    analysis = analyze_project(
+        owner,
+        answers,
     )
 
+    quantity = extract_number(
+        answers.get(
+            "quantity",
+            "",
+        )
+    )
 
-def order_keyboard(job):
-    buttons = []
+    deadline_text = normalize_timeline(
+        answers.get(
+            "deadline",
+            "7 days",
+        )
+    )
 
-    if job["status"] in {
-        "QUOTED",
-        "WAITING_PAYMENT",
-    }:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    "✅ Accept & Pay",
-                    callback_data=f"pay_{job['id']}",
-                ),
-                InlineKeyboardButton(
-                    "✏️ Make Changes",
-                    callback_data=f"edit_{job['id']}",
-                ),
-            ]
+    deadline_days = 0
+
+    timeline_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*"
+        r"(day|days|week|weeks)",
+        deadline_text.lower(),
+    )
+
+    if timeline_match:
+        deadline_days = float(
+            timeline_match.group(1)
         )
 
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                "📄 View Proposal",
-                callback_data=f"proposal_{job['id']}",
+        if timeline_match.group(2).startswith("week"):
+            deadline_days *= 7
+
+    complexity = str(
+        analysis.get(
+            "complexity",
+            "NORMAL",
+        )
+    ).lower()
+
+    if complexity == "normal":
+        complexity = "low"
+
+    result = calculate_price(
+        pricing_rules=rules,
+        quantity=quantity,
+        unit=None,
+        hours=None,
+        deadline_days=deadline_days,
+        complexity=complexity,
+    )
+
+    if not result.get(
+        "success",
+        False,
+    ):
+        return (
+            0,
+            {
+                **analysis,
+                "pricing_error": result.get(
+                    "reason",
+                    "Unable to calculate price.",
+                ),
+                "pricing_result": result,
+            },
+        )
+
+    price = result.get("price")
+
+    if price is None:
+        return (
+            0,
+            {
+                **analysis,
+                "pricing_error": (
+                    "Pricing engine returned "
+                    "no price."
+                ),
+                "pricing_result": result,
+            },
+        )
+
+    return (
+        round(float(price), 2),
+        {
+            **analysis,
+            "pricing_result": result,
+        },
+    )
+
+
+# =========================================================
+# PROGRESS
+# =========================================================
+
+async def proposal_progress(message):
+    steps = [
+        (10, "Reviewing project details..."),
+        (25, "Analyzing project scope..."),
+        (45, "Calculating project investment..."),
+        (65, "Preparing your business proposal..."),
+        (80, "Formatting professional proposal..."),
+        (95, "Generating PDF document..."),
+        (100, "Proposal ready."),
+    ]
+
+    for percent, status in steps:
+
+        bar_length = 20
+
+        filled = int(
+            bar_length * percent / 100
+        )
+
+        bar = (
+            "█" * filled
+            + "░" * (bar_length - filled)
+        )
+
+        try:
+            await message.edit_text(
+                "Preparing your proposal...\n\n"
+                f"{bar} {percent}%\n\n"
+                f"{status}"
             )
-        ]
-    )
+        except Exception:
+            pass
 
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                "⬅️ My Orders",
-                callback_data="my_orders",
-            ),
-            InlineKeyboardButton(
-                "🏠 Home",
-                callback_data="client_home",
-            ),
-        ]
-    )
-
-    return InlineKeyboardMarkup(buttons)
+        if percent != 100:
+            await asyncio.sleep(0.45)
 
 
-async def update_progress(
-    message,
-    text,
-    percent,
+# =========================================================
+# PDF
+# =========================================================
+
+def build_proposal_pdf(
+    owner,
+    job_id,
+    client_name,
+    answers,
+    proposal,
+    price,
+    change_request="",
 ):
-    total_blocks = 10
-
-    filled = round(
-        percent / 10
+    studio_name = clean_text(
+        row_get(
+            owner,
+            "name",
+            "Sovereign Studio",
+        )
     )
 
-    empty = (
-        total_blocks
-        - filled
+    timeline = normalize_timeline(
+        answers.get(
+            "deadline",
+            "7 days",
+        )
     )
 
-    bar = (
-        "█" * filled
-        + "░" * empty
+    project_title = clean_text(
+        answers.get(
+            "project",
+            "Project Proposal",
+        )
     )
 
-    await message.edit_text(
-        f"{text}\n\n"
-        f"`{bar}` {percent}%",
-        parse_mode="Markdown",
+    if len(project_title) > 80:
+        project_title = (
+            project_title[:77]
+            + "..."
+        )
+
+    proposal_id = f"SB-{int(job_id):04d}"
+
+    return create_proposal_pdf(
+        studio_name=studio_name,
+        client_name=client_name,
+        proposal_text=proposal,
+        price=price,
+        timeline=timeline,
+        proposal_id=proposal_id,
+        change_request=change_request,
+        project_title=project_title,
     )
 
 
@@ -208,115 +728,149 @@ async def update_progress(
 # CLIENT HOME
 # =========================================================
 
-async def client_home(update, context):
-
-    query = update.callback_query
-
-    if query:
-        await query.answer()
-
-        await query.message.edit_text(
-            "👋 Welcome to Sovereign Studio.\n\n"
-            "What would you like to do?",
-            reply_markup=main_menu_keyboard(),
-        )
-
-    else:
-
-        await update.message.reply_text(
-            "👋 Welcome to Sovereign Studio.\n\n"
-            "What would you like to do?",
-            reply_markup=main_menu_keyboard(),
-        )
-
-
-async def start_client(update, context):
-
-    if is_owner(update):
-        return ConversationHandler.END
-
+async def start_client(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     context.user_data.clear()
 
-    await client_home(
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "➕ New Project",
+                callback_data="new_order",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📦 My Orders",
+                callback_data="my_orders",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🛠 Services",
+                callback_data="services",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "💬 Contact Studio",
+                callback_data="contact_studio",
+            )
+        ],
+    ]
+
+    text = (
+        "Welcome to Sovereign Studio.\n\n"
+        "Tell us what you need and we'll help "
+        "turn it into a clear project scope and quote."
+    )
+
+    markup = InlineKeyboardMarkup(keyboard)
+
+    if update.callback_query:
+        query = update.callback_query
+
+        await query.answer()
+
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=markup,
+            )
+        except Exception:
+            if query.message:
+                await query.message.reply_text(
+                    text,
+                    reply_markup=markup,
+                )
+
+    elif update.message:
+        await update.message.reply_text(
+            text,
+            reply_markup=markup,
+        )
+
+
+async def client_home(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    await start_client(
         update,
         context,
     )
-
-    return ConversationHandler.END
 
 
 # =========================================================
 # NEW ORDER
 # =========================================================
 
-async def new_order_start(update, context):
-
+async def new_order_start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     query = update.callback_query
+
     await query.answer()
 
-    if is_owner(update):
-        return ConversationHandler.END
+    from config import OWNER_TELEGRAM_ID
 
     owner = get_owner(
         OWNER_TELEGRAM_ID
     )
 
-    if owner is None or not owner["setup_complete"]:
-
-        await query.message.reply_text(
-            "The studio hasn't completed setup yet."
+    if owner is None:
+        await query.edit_message_text(
+            "The business is not fully configured yet."
         )
 
         return ConversationHandler.END
 
     context.user_data.clear()
 
-    await query.message.reply_text(
-        "🆕 New Order\n\n"
-        "Before we start, what's your name?"
+    context.user_data["owner_id"] = row_get(
+        owner,
+        "telegram_id",
+        OWNER_TELEGRAM_ID,
+    )
+
+    context.user_data["answers"] = {}
+    context.user_data["question_index"] = 0
+
+    await query.edit_message_text(
+        "Great. Let's get a few details so we can "
+        "understand exactly what you need.\n\n"
+        "What is your name?"
     )
 
     return NAME
 
 
-async def handle_client_name(update, context):
+# =========================================================
+# CLIENT NAME
+# =========================================================
 
-    client_name = update.message.text.strip()
+async def handle_client_name(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    name = clean_text(
+        update.message.text
+    )
 
-    if not client_name:
-
+    if not name:
         await update.message.reply_text(
             "Please enter your name."
         )
 
         return NAME
 
-    if len(client_name) > 100:
-
-        await update.message.reply_text(
-            "Please enter a shorter name."
-        )
-
-        return NAME
-
-    client_id = update.effective_user.id
-
-    job_id = create_job(
-        client_id,
-        client_name,
-    )
-
-    context.user_data["job_id"] = job_id
-    context.user_data["answers"] = {}
-    context.user_data["client_name"] = client_name
+    context.user_data["client_name"] = name
 
     await update.message.reply_text(
-        f"Nice to meet you, {client_name}.\n\n"
-        "I'll ask a few quick questions so I can scope your project."
-    )
-
-    await update.message.reply_text(
-        QUESTIONS[0][1]
+        GENERIC_QUESTIONS[0][1]
     )
 
     return QUESTION_1
@@ -326,10 +880,100 @@ async def handle_client_name(update, context):
 # INTAKE
 # =========================================================
 
-async def handle_intake_answer(update, context):
+async def handle_intake_answer(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    answer = clean_text(
+        update.message.text
+    )
 
-    job_id = context.user_data.get(
-        "job_id"
+    question_index = context.user_data.get(
+        "question_index",
+        0,
+    )
+
+    if not answer:
+        await update.message.reply_text(
+            "Please provide an answer so we can "
+            "understand the project."
+        )
+
+        return QUESTION_STATES[
+            min(
+                question_index,
+                len(QUESTION_STATES) - 1,
+            )
+        ]
+
+    answers = context.user_data.setdefault(
+        "answers",
+        {},
+    )
+
+    if question_index >= len(GENERIC_QUESTIONS):
+        return ConversationHandler.END
+
+    key = GENERIC_QUESTIONS[
+        question_index
+    ][0]
+
+    answers[key] = answer
+
+    question_index += 1
+
+    context.user_data["question_index"] = question_index
+
+    if question_index < len(GENERIC_QUESTIONS):
+        await update.message.reply_text(
+            GENERIC_QUESTIONS[
+                question_index
+            ][1]
+        )
+
+        return QUESTION_STATES[
+            question_index
+        ]
+
+    await finish_intake(
+        update,
+        context,
+    )
+
+    return ConversationHandler.END
+
+
+# =========================================================
+# FINISH INTAKE
+# =========================================================
+
+async def finish_intake(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    user_id = update.effective_user.id
+
+    owner_id = context.user_data.get(
+        "owner_id"
+    )
+
+    if not owner_id:
+        from config import OWNER_TELEGRAM_ID
+
+        owner_id = OWNER_TELEGRAM_ID
+
+    owner = get_owner(owner_id)
+
+    if owner is None:
+        await update.message.reply_text(
+            "The business is currently unavailable."
+        )
+
+        return
+
+    client_name = context.user_data.get(
+        "client_name",
+        update.effective_user.first_name or "Client",
     )
 
     answers = context.user_data.get(
@@ -337,143 +981,53 @@ async def handle_intake_answer(update, context):
         {},
     )
 
-    if job_id is None:
-
-        await update.message.reply_text(
-            "Your order session expired.\n\n"
-            "Tap 🆕 New Order to begin again.",
-            reply_markup=main_menu_keyboard(),
-        )
-
-        return ConversationHandler.END
-
-    job = get_job(job_id)
-
-    if not job:
-
-        await update.message.reply_text(
-            "I couldn't find this order."
-        )
-
-        return ConversationHandler.END
-
-    if job["paused"]:
-
-        await update.message.reply_text(
-            "This order is currently paused by the studio."
-        )
-
-        return ConversationHandler.END
-
-    text = update.message.text.strip()
-
-    if not text:
-
-        await update.message.reply_text(
-            "Please send an answer so I can continue."
-        )
-
-        return QUESTION_1 + len(answers)
-
-    question_index = len(answers)
-
-    if question_index >= len(QUESTIONS):
-
-        return ConversationHandler.END
-
-    key, _ = QUESTIONS[question_index]
-
-    answers[key] = text
-
-    context.user_data["answers"] = answers
+    job_id = create_job(
+        client_telegram_id=user_id,
+        client_name=client_name,
+    )
 
     save_job_answers(
         job_id,
         answers,
     )
 
-    next_index = len(answers)
-
-    if next_index < len(QUESTIONS):
-
-        await update.message.reply_text(
-            QUESTIONS[next_index][1]
-        )
-
-        return QUESTION_1 + next_index
-
-    # =====================================================
-    # GENERATE PROPOSAL
-    # =====================================================
-
-    progress = await update.message.reply_text(
-        "⚙️ Preparing your proposal..."
-    )
-
-    await update_progress(
-        progress,
-        "🔎 Reviewing your project requirements...",
-        20,
-    )
-
-    await asyncio.sleep(0.3)
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
-
-    if owner is None or not owner["setup_complete"]:
-
-        await progress.edit_text(
-            "The studio hasn't completed setup yet."
-        )
-
-        return ConversationHandler.END
-
-    await update_progress(
-        progress,
-        "💰 Calculating project scope and pricing...",
-        40,
-    )
-
-    price = calculate_price(
+    price, analysis = calculate_business_price(
         owner,
         answers,
     )
 
-    await asyncio.sleep(0.3)
-
-    await update_progress(
-        progress,
-        "✍️ Writing your proposal...",
-        60,
+    save_job_analysis(
+        job_id,
+        complexity=analysis["complexity"],
+        cushion_applied=analysis["cushion_applied"],
+        internal_analysis=analysis["internal_analysis"],
     )
 
-    try:
+    if price <= 0:
+        await update.message.reply_text(
+            "We received your project request.\n\n"
+            "The studio needs to review the pricing "
+            "configuration before a quote can be issued."
+        )
 
+        return
+
+    # -----------------------------------------------------
+    # GENERATE PROPOSAL
+    # -----------------------------------------------------
+
+    try:
         proposal = await generate_proposal(
             owner,
             answers,
             price,
         )
-
-    except Exception as error:
-
-        print(
-            f"LLM proposal failed: {error}"
-        )
-
+    except Exception:
         proposal = template_proposal(
             owner,
             answers,
             price,
         )
-
-    await update_progress(
-        progress,
-        "📋 Finalizing project details...",
-        80,
-    )
 
     save_proposal(
         job_id,
@@ -481,76 +1035,426 @@ async def handle_intake_answer(update, context):
         proposal,
     )
 
-    await update_progress(
-        progress,
-        "📄 Generating your professional proposal PDF...",
-        90,
-    )
+    # -----------------------------------------------------
+    # PROGRESS
+    # -----------------------------------------------------
 
-    client_name = context.user_data.get(
-        "client_name",
-        "Client",
+    progress_message = await update.message.reply_text(
+        "Preparing your proposal...\n\n"
+        "░░░░░░░░░░░░░░░░░░░░ 0%"
     )
-
-    timeline = (
-        f"{owner['default_days']} days"
-    )
-
-    pdf = None
 
     try:
+        await proposal_progress(
+            progress_message
+        )
 
-        pdf = create_proposal_pdf(
-            studio_name=owner["name"],
+        pdf = build_proposal_pdf(
+            owner=owner,
+            job_id=job_id,
             client_name=client_name,
-            proposal_text=proposal,
+            answers=answers,
+            proposal=proposal,
             price=price,
-            timeline=timeline,
-            proposal_id=f"SB-{job_id:04d}",
         )
-
-    except Exception as error:
-
-        print(
-            f"PDF generation failed: {error}"
-        )
-
-    await update_progress(
-        progress,
-        "✅ Proposal ready!",
-        100,
-    )
-
-    await asyncio.sleep(0.5)
-
-    try:
-        await progress.delete()
-    except Exception:
-        pass
-
-    set_job_status(
-        job_id,
-        "WAITING_PAYMENT",
-    )
-
-    job = get_job(job_id)
-
-    await update.message.reply_text(
-        proposal,
-        reply_markup=order_keyboard(job),
-    )
-
-    if pdf:
 
         await update.message.reply_document(
             document=pdf,
-            filename=f"proposal_SB-{job_id:04d}.pdf",
+            filename=f"Proposal_SB-{job_id:04d}.pdf",
             caption=(
-                "📄 Your professional proposal is attached."
+                f"📄 Proposal SB-{job_id:04d}\n\n"
+                "Your professional business proposal "
+                "is ready."
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📄 View Proposal",
+                            callback_data=f"proposal_{job_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "✏️ Request Changes",
+                            callback_data=f"edit_{job_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🏠 Home",
+                            callback_data="client_home",
+                        )
+                    ],
+                ]
             ),
         )
 
+        try:
+            await progress_message.edit_text(
+                "Proposal ready.\n\n"
+                "████████████████████ 100%\n\n"
+                "📄 PDF generated successfully."
+            )
+        except Exception:
+            pass
+
+    except Exception as error:
+        try:
+            await progress_message.edit_text(
+                "Proposal preparation failed.\n\n"
+                f"Error: {error}"
+            )
+        except Exception:
+            pass
+
+        await update.message.reply_text(
+            "I prepared the proposal, but the PDF "
+            "could not be generated.\n\n"
+            f"Error: {error}"
+        )
+
+
+# =========================================================
+# EDIT ORDER START
+# =========================================================
+
+async def edit_order_start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+
+    await query.answer()
+
+    match = re.match(
+        r"^edit_(\d+)$",
+        query.data or "",
+    )
+
+    if not match:
+        await query.edit_message_text(
+            "Invalid project."
+        )
+
+        return ConversationHandler.END
+
+    job_id = int(match.group(1))
+    user_id = update.effective_user.id
+
+    if not client_owns_job(
+        user_id,
+        job_id,
+    ):
+        await query.edit_message_text(
+            "You don't have access to this project."
+        )
+
+        return ConversationHandler.END
+
     context.user_data.clear()
+    context.user_data["edit_job_id"] = job_id
+
+    await query.edit_message_text(
+        "Tell us what you'd like to change "
+        "about the project or proposal."
+    )
+
+    return EDIT_REQUEST
+
+
+# =========================================================
+# EDIT REQUEST
+# =========================================================
+
+async def handle_edit_request(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    job_id = context.user_data.get(
+        "edit_job_id"
+    )
+
+    if not job_id:
+        await update.message.reply_text(
+            "I couldn't identify the project."
+        )
+
+        return ConversationHandler.END
+
+    user_id = update.effective_user.id
+
+    if not client_owns_job(
+        user_id,
+        job_id,
+    ):
+        await update.message.reply_text(
+            "You don't have access to this project."
+        )
+
+        return ConversationHandler.END
+
+    request = clean_text(
+        update.message.text
+    )
+
+    if not request:
+        await update.message.reply_text(
+            "Please describe the change you'd like "
+            "to make."
+        )
+
+        return EDIT_REQUEST
+
+    job = get_job(job_id)
+
+    if not job:
+        await update.message.reply_text(
+            "That project could not be found."
+        )
+
+        return ConversationHandler.END
+
+    answers = get_job_answers(job_id)
+
+    if not isinstance(answers, dict):
+        answers = dict(answers or {})
+
+    answers["client_revision_request"] = request
+
+    # -----------------------------------------------------
+    # TIMELINE
+    # -----------------------------------------------------
+
+    new_timeline = extract_timeline_from_text(
+        request
+    )
+
+    if new_timeline:
+        answers["deadline"] = new_timeline
+
+    # -----------------------------------------------------
+    # QUANTITY
+    # -----------------------------------------------------
+
+    new_quantity = extract_quantity_from_text(
+        request
+    )
+
+    if new_quantity:
+        old_quantity = clean_text(
+            answers.get(
+                "quantity",
+                "",
+            )
+        )
+
+        if old_quantity:
+            answers["quantity"] = (
+                f"{new_quantity} "
+                f"(updated from {old_quantity})"
+            )
+        else:
+            answers["quantity"] = new_quantity
+
+    # -----------------------------------------------------
+    # CATERING / PARTY CONTEXT
+    # -----------------------------------------------------
+
+    revision_lower = request.lower()
+
+    if (
+        new_quantity
+        and (
+            "catering" in revision_lower
+            or "birthday" in revision_lower
+            or "food" in revision_lower
+            or "party" in revision_lower
+        )
+    ):
+        previous_requirements = clean_text(
+            answers.get(
+                "requirements",
+                "",
+            )
+        )
+
+        updated_requirement = (
+            "Updated requirement: catering "
+            f"for {new_quantity} people."
+        )
+
+        answers["requirements"] = (
+            previous_requirements
+            + "\n\n"
+            + updated_requirement
+        ).strip()
+
+    save_job_answers(
+        job_id,
+        answers,
+    )
+
+    # -----------------------------------------------------
+    # OWNER
+    # -----------------------------------------------------
+
+    from config import OWNER_TELEGRAM_ID
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if owner is None:
+        await update.message.reply_text(
+            "The business configuration is unavailable."
+        )
+
+        return ConversationHandler.END
+
+    # -----------------------------------------------------
+    # REPRICE
+    # -----------------------------------------------------
+
+    price, analysis = calculate_business_price(
+        owner,
+        answers,
+    )
+
+    save_job_analysis(
+        job_id,
+        complexity=analysis["complexity"],
+        cushion_applied=analysis["cushion_applied"],
+        internal_analysis=analysis["internal_analysis"],
+    )
+
+    if price <= 0:
+        await update.message.reply_text(
+            "Your changes were saved, but the studio "
+            "needs to review the pricing configuration "
+            "before issuing a revised quote."
+        )
+
+        return ConversationHandler.END
+
+    # -----------------------------------------------------
+    # REGENERATE PROPOSAL
+    # -----------------------------------------------------
+
+    try:
+        proposal = await generate_proposal(
+            owner,
+            answers,
+            price,
+        )
+    except Exception:
+        proposal = template_proposal(
+            owner,
+            answers,
+            price,
+        )
+
+    save_proposal(
+        job_id,
+        price,
+        proposal,
+    )
+
+    # -----------------------------------------------------
+    # PROGRESS
+    # -----------------------------------------------------
+
+    progress_message = await update.message.reply_text(
+        "Updating your proposal...\n\n"
+        "░░░░░░░░░░░░░░░░░░░░ 0%"
+    )
+
+    try:
+        await proposal_progress(
+            progress_message
+        )
+
+        client_name = row_get(
+            job,
+            "client_name",
+            update.effective_user.first_name or "Client",
+        )
+
+        pdf = build_proposal_pdf(
+            owner=owner,
+            job_id=job_id,
+            client_name=client_name,
+            answers=answers,
+            proposal=proposal,
+            price=price,
+            change_request=request,
+        )
+
+        await update.message.reply_document(
+            document=pdf,
+            filename=f"Proposal_SB-{job_id:04d}_Revised.pdf",
+            caption=(
+                f"📄 Revised Proposal SB-{job_id:04d}\n\n"
+                "Your requested changes have been applied."
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📄 View Proposal",
+                            callback_data=f"proposal_{job_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🏠 Home",
+                            callback_data="client_home",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+        try:
+            await progress_message.edit_text(
+                "Proposal updated successfully.\n\n"
+                "████████████████████ 100%\n\n"
+                "📄 Revised PDF generated."
+            )
+        except Exception:
+            pass
+
+    except Exception as error:
+        try:
+            await progress_message.edit_text(
+                "Proposal update failed.\n\n"
+                f"Error: {error}"
+            )
+        except Exception:
+            pass
+
+        await update.message.reply_text(
+            "The proposal was updated, but the PDF "
+            "could not be generated.\n\n"
+            f"Error: {error}"
+        )
+
+    return ConversationHandler.END
+
+
+# =========================================================
+# CANCEL
+# =========================================================
+
+async def cancel_intake(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    context.user_data.clear()
+
+    await update.message.reply_text(
+        "Project intake cancelled."
+    )
 
     return ConversationHandler.END
 
@@ -559,33 +1463,32 @@ async def handle_intake_answer(update, context):
 # MY ORDERS
 # =========================================================
 
-async def my_orders(update, context):
-
+async def my_orders(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     query = update.callback_query
+
     await query.answer()
 
-    client_id = update.effective_user.id
+    user_id = update.effective_user.id
 
-    jobs = get_client_jobs(
-        client_id
-    )
+    orders = get_client_orders(user_id)
 
-    if not jobs:
-
-        await query.message.edit_text(
-            "📦 My Orders\n\n"
-            "You don't have any orders yet.",
+    if not orders:
+        await query.edit_message_text(
+            "You don't have any projects yet.",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
                         InlineKeyboardButton(
-                            "🆕 New Order",
+                            "➕ New Project",
                             callback_data="new_order",
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            "⬅️ Home",
+                            "🏠 Home",
                             callback_data="client_home",
                         )
                     ],
@@ -595,34 +1498,14 @@ async def my_orders(update, context):
 
         return
 
-    lines = [
-        "📦 My Orders",
-        "",
-    ]
-
     buttons = []
 
-    for job in jobs:
-
-        price = job["quoted_price"]
-
-        price_text = (
-            f"${price:.0f}"
-            if price
-            else "Not quoted"
-        )
-
-        lines.append(
-            f"#{job['id']} • "
-            f"{job['status']} • "
-            f"{price_text}"
-        )
-
+    for order in orders[:20]:
         buttons.append(
             [
                 InlineKeyboardButton(
-                    f"📦 Order #{job['id']}",
-                    callback_data=f"order_{job['id']}",
+                    f"#{order['id']} — {order['status']}",
+                    callback_data=f"order_{order['id']}",
                 )
             ]
         )
@@ -630,24 +1513,17 @@ async def my_orders(update, context):
     buttons.append(
         [
             InlineKeyboardButton(
-                "🆕 New Order",
-                callback_data="new_order",
-            )
-        ]
-    )
-
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                "⬅️ Home",
+                "🏠 Home",
                 callback_data="client_home",
             )
         ]
     )
 
-    await query.message.edit_text(
-        "\n".join(lines),
-        reply_markup=InlineKeyboardMarkup(buttons),
+    await query.edit_message_text(
+        "Your projects:",
+        reply_markup=InlineKeyboardMarkup(
+            buttons
+        ),
     )
 
 
@@ -655,491 +1531,553 @@ async def my_orders(update, context):
 # ORDER DETAIL
 # =========================================================
 
-async def order_detail(update, context):
-
+async def order_detail(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     query = update.callback_query
+
     await query.answer()
 
-    try:
-        job_id = int(
-            query.data.split("_")[1]
-        )
-    except (ValueError, IndexError):
+    match = re.match(
+        r"^order_(\d+)$",
+        query.data or "",
+    )
+
+    if not match:
         return
 
+    order_id = int(match.group(1))
+    user_id = update.effective_user.id
+
     job = get_client_job(
-        update.effective_user.id,
-        job_id,
+        user_id,
+        order_id,
     )
 
     if not job:
-
-        await query.message.reply_text(
-            "Order not found."
+        await query.edit_message_text(
+            "Project not found."
         )
 
         return
 
-    price = job["quoted_price"]
+    buttons = []
 
-    price_text = (
-        f"${price:.0f} USD"
-        if price
-        else "Not quoted"
-    )
-
-    text = (
-        f"📦 Order #{job['id']}\n\n"
-        f"Client: {job['client_name']}\n"
-        f"Status: {job['status']}\n"
-        f"Price: {price_text}\n"
-        f"Created: {job['created_at']}"
-    )
-
-    await query.message.edit_text(
-        text,
-        reply_markup=order_keyboard(job),
-    )
-
-
-# =========================================================
-# ACCEPT & PAY
-# =========================================================
-
-async def payment_page(update, context):
-
-    query = update.callback_query
-    await query.answer()
-
-    try:
-        job_id = int(
-            query.data.split("_")[1]
-        )
-    except (ValueError, IndexError):
-        return
-
-    job = get_client_job(
-        update.effective_user.id,
-        job_id,
-    )
-
-    if not job:
-        return
-
-    if job["status"] not in {
-        "QUOTED",
-        "WAITING_PAYMENT",
-    }:
-
-        await query.message.reply_text(
-            "This order isn't currently awaiting payment."
+    if row_get(
+        job,
+        "proposal_text",
+    ):
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    "📄 Proposal",
+                    callback_data=f"proposal_{order_id}",
+                )
+            ]
         )
 
-        return
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
+    quoted_price = row_get(
+        job,
+        "quoted_price",
     )
 
-    payment_text = (
-        f"💳 Payment for Order #{job_id}\n\n"
-        f"Amount: ${job['quoted_price']:.0f} USD\n\n"
-        "For this demo, payment confirmation is simulated.\n\n"
-        "After you've paid, tap the button below."
+    status = row_get(
+        job,
+        "status",
+        "",
     )
 
-    if owner and owner["usdc_address"]:
-
-        payment_text += (
-            "\n\nUSDC address:\n"
-            f"`{owner['usdc_address']}`"
+    if (
+        quoted_price
+        and status == "QUOTED"
+    ):
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    "💳 Payment",
+                    callback_data=f"pay_{order_id}",
+                )
+            ]
         )
 
-    keyboard = InlineKeyboardMarkup(
+    if status not in (
+        "CLOSED",
+        "DELIVERED",
+    ):
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    "✏️ Request Changes",
+                    callback_data=f"edit_{order_id}",
+                )
+            ]
+        )
+
+    buttons.append(
         [
-            [
-                InlineKeyboardButton(
-                    "✅ I Paid",
-                    callback_data=f"paid_{job_id}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "⬅️ Back to Order",
-                    callback_data=f"order_{job_id}",
-                )
-            ],
+            InlineKeyboardButton(
+                "📦 My Orders",
+                callback_data="my_orders",
+            )
         ]
     )
 
-    await query.message.edit_text(
-        payment_text,
-        parse_mode="Markdown",
-        reply_markup=keyboard,
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                "🏠 Home",
+                callback_data="client_home",
+            )
+        ]
     )
 
-
-async def confirm_paid(update, context):
-
-    query = update.callback_query
-    await query.answer()
-
-    try:
-        job_id = int(
-            query.data.split("_")[1]
-        )
-    except (ValueError, IndexError):
-        return
-
-    job = get_client_job(
-        update.effective_user.id,
-        job_id,
+    text = (
+        f"Project #{order_id}\n\n"
+        f"Status: {status}\n"
     )
 
-    if not job:
-        return
-
-    if job["paused"]:
-
-        await query.message.reply_text(
-            "This order is currently paused."
+    if quoted_price:
+        currency = row_get(
+            job,
+            "currency",
+            "USD",
         )
 
-        return
-
-    if job["status"] in {
-        "QUOTED",
-        "WAITING_PAYMENT",
-    }:
-
-        set_job_status(
-            job_id,
-            "PAID",
+        text += (
+            f"Quote: {currency} "
+            f"{float(quoted_price):,.2f}\n"
         )
 
-        await query.message.edit_text(
-            f"✅ Payment confirmed for Order #{job_id}.\n\n"
-            "Your project is now in the production queue.",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "📦 View Order",
-                            callback_data=f"order_{job_id}",
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "📦 My Orders",
-                            callback_data="my_orders",
-                        )
-                    ],
-                ]
-            ),
+    complexity = row_get(
+        job,
+        "complexity",
+    )
+
+    if complexity:
+        text += (
+            f"Complexity: {complexity}\n"
         )
 
-        return
-
-    if job["status"] == "PAID":
-
-        await query.message.reply_text(
-            "Payment is already confirmed."
-        )
-
-        return
-
-    await query.message.reply_text(
-        "This order isn't awaiting payment."
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            buttons
+        ),
     )
-
-
-# =========================================================
-# EDIT PROPOSAL
-# =========================================================
-
-async def edit_order_start(update, context):
-
-    query = update.callback_query
-    await query.answer()
-
-    try:
-        job_id = int(
-            query.data.split("_")[1]
-        )
-    except (ValueError, IndexError):
-        return ConversationHandler.END
-
-    job = get_client_job(
-        update.effective_user.id,
-        job_id,
-    )
-
-    if not job:
-        await query.message.reply_text(
-            "Order not found."
-        )
-        return ConversationHandler.END
-
-    if job["status"] not in {
-        "QUOTED",
-        "WAITING_PAYMENT",
-    }:
-
-        await query.message.reply_text(
-            "This order can no longer be edited at this stage."
-        )
-
-        return ConversationHandler.END
-
-    context.user_data.clear()
-
-    context.user_data["editing_job_id"] = job_id
-
-    await query.message.reply_text(
-        f"✏️ Edit Order #{job_id}\n\n"
-        "Tell me what you'd like to change.\n\n"
-        "For example:\n"
-        "“Change it from 5 sections to 3 and make the deadline Friday.”"
-    )
-
-    return EDIT_REQUEST
-
-
-async def handle_edit_request(update, context):
-
-    job_id = context.user_data.get(
-        "editing_job_id"
-    )
-
-    if not job_id:
-
-        await update.message.reply_text(
-            "I couldn't find the order you're editing."
-        )
-
-        return ConversationHandler.END
-
-    job = get_client_job(
-        update.effective_user.id,
-        job_id,
-    )
-
-    if not job:
-
-        await update.message.reply_text(
-            "Order not found."
-        )
-
-        return ConversationHandler.END
-
-    change_request = update.message.text.strip()
-
-    if not change_request:
-
-        await update.message.reply_text(
-            "Tell me what you'd like to change."
-        )
-
-        return EDIT_REQUEST
-
-    # Store the request in notes.
-    notes = job["notes"] or ""
-
-    updated_notes = (
-        f"{notes}\n\n"
-        f"Client change request: {change_request}"
-    ).strip()
-
-    from db import update_job_status_and_notes
-
-    update_job_status_and_notes(
-        job_id,
-        status="QUALIFYING",
-        notes=updated_notes,
-    )
-
-    answers = load_answers(job)
-
-    # Keep the original intake data and add the requested
-    # change so the LLM can incorporate it.
-    answers["change_request"] = change_request
-
-    save_job_answers(
-        job_id,
-        answers,
-    )
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
-
-    if not owner or not owner["setup_complete"]:
-
-        await update.message.reply_text(
-            "The studio hasn't completed setup yet."
-        )
-
-        return ConversationHandler.END
-
-    progress = await update.message.reply_text(
-        "⚙️ Updating your proposal..."
-    )
-
-    await update_progress(
-        progress,
-        "🔎 Reviewing your requested changes...",
-        30,
-    )
-
-    await asyncio.sleep(0.3)
-
-    price = calculate_price(
-        owner,
-        answers,
-    )
-
-    await update_progress(
-        progress,
-        "💰 Recalculating project scope...",
-        50,
-    )
-
-    await asyncio.sleep(0.3)
-
-    try:
-
-        proposal = await generate_proposal(
-            owner,
-            answers,
-            price,
-        )
-
-    except Exception as error:
-
-        print(
-            f"LLM revision failed: {error}"
-        )
-
-        proposal = template_proposal(
-            owner,
-            answers,
-            price,
-        )
-
-    await update_progress(
-        progress,
-        "✍️ Writing your revised proposal...",
-        70,
-    )
-
-    save_proposal(
-        job_id,
-        price,
-        proposal,
-    )
-
-    await update_progress(
-        progress,
-        "📄 Generating revised PDF...",
-        90,
-    )
-
-    pdf = None
-
-    try:
-
-        pdf = create_proposal_pdf(
-            studio_name=owner["name"],
-            client_name=job["client_name"],
-            proposal_text=proposal,
-            price=price,
-            timeline=f"{owner['default_days']} days",
-            proposal_id=f"SB-{job_id:04d}",
-        )
-
-    except Exception as error:
-
-        print(
-            f"PDF revision failed: {error}"
-        )
-
-    set_job_status(
-        job_id,
-        "WAITING_PAYMENT",
-    )
-
-    await update_progress(
-        progress,
-        "✅ Revised proposal ready!",
-        100,
-    )
-
-    await asyncio.sleep(0.4)
-
-    try:
-        await progress.delete()
-    except Exception:
-        pass
-
-    updated_job = get_job(job_id)
-
-    await update.message.reply_text(
-        "Here is your revised proposal:",
-    )
-
-    await update.message.reply_text(
-        proposal,
-        reply_markup=order_keyboard(updated_job),
-    )
-
-    if pdf:
-
-        await update.message.reply_document(
-            document=pdf,
-            filename=f"proposal_SB-{job_id:04d}-revised.pdf",
-            caption="📄 Revised proposal PDF",
-        )
-
-    context.user_data.clear()
-
-    return ConversationHandler.END
 
 
 # =========================================================
 # VIEW PROPOSAL
 # =========================================================
 
-async def view_proposal(update, context):
-
+async def view_proposal(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     query = update.callback_query
+
     await query.answer()
 
-    try:
-        job_id = int(
-            query.data.split("_")[1]
-        )
-    except (ValueError, IndexError):
+    match = re.match(
+        r"^proposal_(\d+)$",
+        query.data or "",
+    )
+
+    if not match:
         return
 
+    job_id = int(match.group(1))
+    user_id = update.effective_user.id
+
     job = get_client_job(
-        update.effective_user.id,
+        user_id,
         job_id,
     )
 
     if not job:
-        return
-
-    if not job["proposal_text"]:
-
-        await query.message.reply_text(
-            "A proposal hasn't been generated for this order yet."
+        await query.edit_message_text(
+            "Proposal not found."
         )
 
         return
 
-    await query.message.reply_text(
-        job["proposal_text"],
-        reply_markup=order_keyboard(job),
+    proposal = row_get(
+        job,
+        "proposal_text",
+        "",
+    )
+
+    if not proposal:
+        await query.edit_message_text(
+            "A proposal has not been generated yet."
+        )
+
+        return
+
+    quoted_price = safe_float(
+        row_get(
+            job,
+            "quoted_price",
+            0,
+        )
+    )
+
+    answers = get_job_answers(job_id)
+
+    if not isinstance(answers, dict):
+        answers = dict(answers or {})
+
+    from config import OWNER_TELEGRAM_ID
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if owner:
+        client_name = row_get(
+            job,
+            "client_name",
+            "Client",
+        )
+
+        try:
+            pdf = build_proposal_pdf(
+                owner=owner,
+                job_id=job_id,
+                client_name=client_name,
+                answers=answers,
+                proposal=proposal,
+                price=quoted_price,
+                change_request=answers.get(
+                    "client_revision_request",
+                    "",
+                ),
+            )
+
+            await query.message.reply_document(
+                document=pdf,
+                filename=f"Proposal_SB-{job_id:04d}.pdf",
+                caption=f"📄 Proposal SB-{job_id:04d}",
+            )
+
+        except Exception as error:
+            await query.message.reply_text(
+                "The proposal exists, but the PDF "
+                "could not be generated.\n\n"
+                f"Error: {error}"
+            )
+
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "💳 Payment",
+                callback_data=f"pay_{job_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✏️ Request Changes",
+                callback_data=f"edit_{job_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🏠 Home",
+                callback_data="client_home",
+            )
+        ],
+    ]
+
+    try:
+        await query.edit_message_text(
+            proposal,
+            reply_markup=InlineKeyboardMarkup(
+                buttons
+            ),
+        )
+
+    except Exception as error:
+        if "There is no text in the message to edit" in str(error):
+            await query.message.reply_text(
+                proposal,
+                reply_markup=InlineKeyboardMarkup(
+                    buttons
+                ),
+            )
+        else:
+            raise
+
+
+# =========================================================
+# PAYMENT PAGE
+# =========================================================
+
+async def payment_page(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+
+    await query.answer()
+
+    match = re.match(
+        r"^pay_(\d+)$",
+        query.data or "",
+    )
+
+    if not match:
+        return
+
+    job_id = int(match.group(1))
+    user_id = update.effective_user.id
+
+    job = get_client_job(
+        user_id,
+        job_id,
+    )
+
+    if not job:
+        await query.edit_message_text(
+            "Project not found."
+        )
+
+        return
+
+    from config import OWNER_TELEGRAM_ID
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if not owner:
+        await query.edit_message_text(
+            "Payment information is unavailable."
+        )
+
+        return
+
+    address = clean_text(
+        row_get(
+            owner,
+            "usdc_address",
+        )
+    )
+
+    price = safe_float(
+        row_get(
+            job,
+            "quoted_price",
+            0,
+        )
+    )
+
+    network = clean_text(
+        row_get(
+            owner,
+            "payment_network",
+            "Base",
+        )
+    ) or "Base"
+
+    token = clean_text(
+        row_get(
+            owner,
+            "payment_token",
+            "USDC",
+        )
+    ) or "USDC"
+
+    text = (
+        f"💳 Payment — Project #{job_id}\n\n"
+        f"Amount: ${price:,.2f} USD\n"
+        f"Network: {network}\n"
+        f"Token: {token}\n\n"
+    )
+
+    if address:
+        text += (
+            "Send the exact amount to the wallet below:\n\n"
+            f"`{address}`\n\n"
+            "⚠️ Only send the selected token on the "
+            "specified network.\n\n"
+        )
+    else:
+        text += (
+            "⚠️ The studio has not configured a payment "
+            "wallet yet.\n\n"
+        )
+
+    text += (
+        "After sending the payment, press "
+        "\"I've Paid\" and provide the transaction hash "
+        "when requested."
+    )
+
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "✅ I've Paid",
+                        callback_data=f"paid_{job_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "🏠 Home",
+                        callback_data="client_home",
+                    )
+                ],
+            ]
+        ),
+    )
+
+
+# =========================================================
+# PAYMENT CONFIRMATION
+# =========================================================
+
+async def confirm_paid(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+
+    await query.answer()
+
+    match = re.match(
+        r"^paid_(\d+)$",
+        query.data or "",
+    )
+
+    if not match:
+        return
+
+    job_id = int(match.group(1))
+    user_id = update.effective_user.id
+
+    job = get_client_job(
+        user_id,
+        job_id,
+    )
+
+    if not job:
+        await query.edit_message_text(
+            "Project not found."
+        )
+
+        return
+
+    context.user_data["payment_job_id"] = job_id
+
+    await query.edit_message_text(
+        f"Payment for Project #{job_id}\n\n"
+        "Please send the transaction hash (TX hash) "
+        "of the USDC payment.\n\n"
+        "We will use it to verify the transaction "
+        "on the network."
+    )
+
+
+# =========================================================
+# PAYMENT TEXT FALLBACK
+# =========================================================
+
+async def handle_paid(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    text = clean_text(
+        update.message.text
+    )
+
+    job_id = context.user_data.get(
+        "payment_job_id"
+    )
+
+    if job_id:
+        user_id = update.effective_user.id
+
+        job = get_client_job(
+            user_id,
+            job_id,
+        )
+
+        if not job:
+            await update.message.reply_text(
+                "I couldn't find that project."
+            )
+
+            return
+
+        tx_hash = text
+
+        if len(tx_hash) < 20:
+            await update.message.reply_text(
+                "That doesn't look like a valid "
+                "transaction hash.\n\n"
+                "Please send the complete TX hash."
+            )
+
+            return
+
+        # -------------------------------------------------
+        # IMPORTANT:
+        # This records the submitted transaction hash.
+        # Actual blockchain verification is handled by
+        # the payment verification layer.
+        # -------------------------------------------------
+
+        try:
+            set_job_status(
+                job_id,
+                "PAYMENT_PENDING",
+            )
+        except Exception:
+            pass
+
+        context.user_data["payment_tx_hash"] = tx_hash
+
+        await update.message.reply_text(
+            f"Transaction received for Project #{job_id}.\n\n"
+            f"TX hash:\n{tx_hash}\n\n"
+            "⏳ Payment verification is now pending.\n\n"
+            "The transaction will be checked on the "
+            "configured network before the project is "
+            "marked as paid."
+        )
+
+        return
+
+    if text.upper() != "PAID":
+        return
+
+    user_id = update.effective_user.id
+
+    job = get_latest_order(user_id)
+
+    if not job:
+        await update.message.reply_text(
+            "I couldn't find an active project "
+            "to attach that payment confirmation to."
+        )
+
+        return
+
+    job_id = row_get(
+        job,
+        "id",
+    )
+
+    context.user_data["payment_job_id"] = job_id
+
+    await update.message.reply_text(
+        f"Payment confirmation for Project #{job_id}.\n\n"
+        "Please send the transaction hash (TX hash) "
+        "of the payment so it can be verified."
     )
 
 
@@ -1147,46 +2085,70 @@ async def view_proposal(update, context):
 # SERVICES
 # =========================================================
 
-async def services_page(update, context):
-
+async def services_page(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     query = update.callback_query
+
     await query.answer()
+
+    from config import OWNER_TELEGRAM_ID
 
     owner = get_owner(
         OWNER_TELEGRAM_ID
     )
 
     if not owner:
-
-        await query.message.reply_text(
-            "Studio information isn't available yet."
+        await query.edit_message_text(
+            "Services are currently unavailable."
         )
 
         return
 
-    text = (
-        f"ℹ️ {owner['name']}\n\n"
-        f"{owner['services_text']}\n\n"
-        f"Typical projects: "
-        f"${owner['min_price']:.0f}–"
-        f"${owner['max_price']:.0f}\n\n"
-        f"Standard turnaround: "
-        f"{owner['default_days']} days."
+    services = clean_text(
+        row_get(
+            owner,
+            "services_text",
+        )
     )
 
-    await query.message.edit_text(
+    if not services:
+        services = (
+            "The studio is currently accepting "
+            "custom project requests."
+        )
+
+    owner_name = clean_text(
+        row_get(
+            owner,
+            "name",
+            "Sovereign Studio",
+        )
+    )
+
+    text = (
+        f"{owner_name}\n\n"
+        "🛠 Services:\n\n"
+        f"{services}\n\n"
+        "If you're unsure what service you need, "
+        "just describe your problem or desired outcome "
+        "and we'll help determine the appropriate scope."
+    )
+
+    await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup(
             [
                 [
                     InlineKeyboardButton(
-                        "🆕 New Order",
+                        "➕ Start Project",
                         callback_data="new_order",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        "⬅️ Home",
+                        "🏠 Home",
                         callback_data="client_home",
                     )
                 ],
@@ -1199,117 +2161,60 @@ async def services_page(update, context):
 # CONTACT
 # =========================================================
 
-async def contact_studio(update, context):
-
+async def contact_studio(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     query = update.callback_query
+
     await query.answer()
 
-    await query.message.edit_text(
-        "💬 Contact Studio\n\n"
-        "Send your question in this chat and the studio "
-        "can respond here.",
+    from config import OWNER_TELEGRAM_ID
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if not owner:
+        await query.edit_message_text(
+            "Contact information is unavailable."
+        )
+
+        return
+
+    owner_name = clean_text(
+        row_get(
+            owner,
+            "name",
+            "Sovereign Studio",
+        )
+    )
+
+    text = (
+        f"💬 Contact {owner_name}\n\n"
+        "If you need help with a project, "
+        "start a new project request and describe "
+        "what you need.\n\n"
+        "The studio will review the request and "
+        "provide the appropriate next step."
+    )
+
+    await query.edit_message_text(
+        text,
         reply_markup=InlineKeyboardMarkup(
             [
                 [
                     InlineKeyboardButton(
-                        "⬅️ Home",
+                        "➕ New Project",
+                        callback_data="new_order",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "🏠 Home",
                         callback_data="client_home",
                     )
-                ]
-            ]
-        ),
-    )
-
-
-# =========================================================
-# TEXT "PAID" FALLBACK
-# =========================================================
-
-async def handle_paid(update, context):
-
-    if is_owner(update):
-        return
-
-    text = update.message.text.strip()
-
-    if not is_paid_message(text):
-        return
-
-    client_id = update.effective_user.id
-
-    jobs = get_client_jobs(
-        client_id
-    )
-
-    waiting = [
-        job
-        for job in jobs
-        if job["status"]
-        in {
-            "QUOTED",
-            "WAITING_PAYMENT",
-        }
-    ]
-
-    if not waiting:
-
-        await update.message.reply_text(
-            "I couldn't find an order awaiting payment.\n\n"
-            "Open 📦 My Orders to view your orders.",
-            reply_markup=main_menu_keyboard(),
-        )
-
-        return
-
-    job = waiting[0]
-
-    if job["paused"]:
-
-        await update.message.reply_text(
-            "This order is currently paused."
-        )
-
-        return
-
-    set_job_status(
-        job["id"],
-        "PAID",
-    )
-
-    await update.message.reply_text(
-        f"✅ Payment confirmed for Order #{job['id']}.\n\n"
-        "Your project is now in the production queue.",
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "📦 View Order",
-                        callback_data=f"order_{job['id']}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "📦 My Orders",
-                        callback_data="my_orders",
-                    )
                 ],
             ]
         ),
     )
-
-
-# =========================================================
-# CANCEL
-# =========================================================
-
-async def cancel_intake(update, context):
-
-    context.user_data.clear()
-
-    await update.message.reply_text(
-        "Cancelled.\n\n"
-        "You can start again from the main menu.",
-        reply_markup=main_menu_keyboard(),
-    )
-
-    return ConversationHandler.END

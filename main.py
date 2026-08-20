@@ -1,3 +1,4 @@
+
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -17,43 +18,96 @@ from config import (
 from db import init_db
 
 from handlers.owner import (
+    # =====================================================
+    # SETUP
+    # =====================================================
+
     setup_start,
     setup_name,
+    setup_niche,
     setup_services,
     setup_min_price,
     setup_max_price,
     setup_days,
     cancel_setup,
 
+    SETUP_NAME,
+    SETUP_NICHE,
+    SETUP_SERVICES,
+    SETUP_MIN_PRICE,
+    SETUP_MAX_PRICE,
+    SETUP_DAYS,
+
+    # =====================================================
+    # SETTINGS
+    # =====================================================
+
     settings_menu,
     edit_name_start,
+    edit_niche_start,
     edit_services_start,
     edit_min_start,
     edit_max_start,
     edit_days_start,
     save_setting_value,
 
-    owner_home,
+    EDIT_NAME,
+    EDIT_NICHE,
+    EDIT_SERVICES,
+    EDIT_MIN_PRICE,
+    EDIT_MAX_PRICE,
+    EDIT_DAYS,
 
+    # =====================================================
+    # PAYMENTS
+    # =====================================================
+
+    payments_menu,
+    edit_wallet_start,
+    save_wallet,
+
+    EDIT_WALLET,
+
+    # =====================================================
+    # SIGNATURE
+    # =====================================================
+
+    signature_menu,
+    edit_signature_name_start,
+    edit_signature_title_start,
+    edit_signature_image_start,
+    save_signature_text,
+    save_signature_image,
+
+    EDIT_SIGNATURE_NAME,
+    EDIT_SIGNATURE_TITLE,
+    EDIT_SIGNATURE_IMAGE,
+
+    # =====================================================
+    # OWNER HOME / JOBS
+    # =====================================================
+
+    owner_home,
     jobs_command,
     job_command,
     pause_command,
     resume_command,
 
-    SETUP_NAME,
-    SETUP_SERVICES,
-    SETUP_MIN_PRICE,
-    SETUP_MAX_PRICE,
-    SETUP_DAYS,
+    # =====================================================
+    # ORDER CALLBACKS
+    # =====================================================
 
-    EDIT_NAME,
-    EDIT_SERVICES,
-    EDIT_MIN_PRICE,
-    EDIT_MAX_PRICE,
-    EDIT_DAYS,
+    owner_job_detail,
+    pause_job_callback,
+    resume_job_callback,
 )
 
+
 from handlers.client import (
+    # =====================================================
+    # CLIENT
+    # =====================================================
+
     start_client,
     new_order_start,
     handle_client_name,
@@ -64,13 +118,32 @@ from handlers.client import (
     client_home,
     my_orders,
     order_detail,
+
+    # =====================================================
+    # PAYMENTS
+    # =====================================================
+
     payment_page,
     confirm_paid,
+    handle_paid,
+
+    # =====================================================
+    # ORDERS / PROPOSALS
+    # =====================================================
+
     edit_order_start,
     view_proposal,
+
+    # =====================================================
+    # SERVICES / CONTACT
+    # =====================================================
+
     services_page,
     contact_studio,
-    handle_paid,
+
+    # =====================================================
+    # CLIENT STATES
+    # =====================================================
 
     NAME,
     QUESTION_1,
@@ -90,8 +163,26 @@ async def start_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+    """
+    Main entry point.
 
-    user_id = update.effective_user.id
+    Owner:
+        -> Owner dashboard
+
+    Client:
+        -> Client-facing business interface
+    """
+
+    user = update.effective_user
+
+    if not user:
+        return ConversationHandler.END
+
+    user_id = user.id
+
+    # -----------------------------------------------------
+    # OWNER
+    # -----------------------------------------------------
 
     if user_id == OWNER_TELEGRAM_ID:
 
@@ -102,6 +193,10 @@ async def start_command(
 
         return ConversationHandler.END
 
+    # -----------------------------------------------------
+    # CLIENT
+    # -----------------------------------------------------
+
     await start_client(
         update,
         context,
@@ -111,17 +206,24 @@ async def start_command(
 
 
 # =========================================================
-# MAIN
+# BUILD APPLICATION
 # =========================================================
 
-def main():
+def build_application():
 
-    init_db()
+    # -----------------------------------------------------
+    # CHECK TOKEN
+    # -----------------------------------------------------
 
     if not TELEGRAM_BOT_TOKEN:
+
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN is missing from .env"
         )
+
+    # -----------------------------------------------------
+    # CREATE APPLICATION
+    # -----------------------------------------------------
 
     application = (
         Application.builder()
@@ -129,11 +231,13 @@ def main():
         .build()
     )
 
+
     # =====================================================
-    # OWNER SETUP
+    # OWNER SETUP CONVERSATION
     # =====================================================
 
     owner_setup_conversation = ConversationHandler(
+
         entry_points=[
             CommandHandler(
                 "setup",
@@ -143,44 +247,88 @@ def main():
 
         states={
 
+            # -------------------------------------------------
+            # BUSINESS NAME
+            # -------------------------------------------------
+
             SETUP_NAME: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     setup_name,
-                )
+                ),
+
             ],
 
+            # -------------------------------------------------
+            # BUSINESS TYPE
+            # -------------------------------------------------
+
+            SETUP_NICHE: [
+
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    setup_niche,
+                ),
+
+            ],
+
+            # -------------------------------------------------
+            # SERVICES
+            # -------------------------------------------------
+
             SETUP_SERVICES: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     setup_services,
-                )
+                ),
+
             ],
 
+            # -------------------------------------------------
+            # MINIMUM PRICE
+            # -------------------------------------------------
+
             SETUP_MIN_PRICE: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     setup_min_price,
-                )
+                ),
+
             ],
 
+            # -------------------------------------------------
+            # MAXIMUM PRICE
+            # -------------------------------------------------
+
             SETUP_MAX_PRICE: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     setup_max_price,
-                )
+                ),
+
             ],
 
+            # -------------------------------------------------
+            # DELIVERY DAYS
+            # -------------------------------------------------
+
             SETUP_DAYS: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     setup_days,
-                )
+                ),
+
             ],
         },
 
@@ -198,28 +346,64 @@ def main():
         owner_setup_conversation
     )
 
+
     # =====================================================
-    # OWNER SETTINGS EDITING
+    # OWNER BUSINESS SETTINGS CONVERSATION
     # =====================================================
 
     owner_settings_conversation = ConversationHandler(
+
         entry_points=[
+
+            # -------------------------------------------------
+            # EDIT NAME
+            # -------------------------------------------------
+
             CallbackQueryHandler(
                 edit_name_start,
                 pattern=r"^edit_name$",
             ),
+
+            # -------------------------------------------------
+            # EDIT BUSINESS TYPE
+            # -------------------------------------------------
+
+            CallbackQueryHandler(
+                edit_niche_start,
+                pattern=r"^edit_niche$",
+            ),
+
+            # -------------------------------------------------
+            # EDIT SERVICES
+            # -------------------------------------------------
+
             CallbackQueryHandler(
                 edit_services_start,
                 pattern=r"^edit_services$",
             ),
+
+            # -------------------------------------------------
+            # EDIT MINIMUM PRICE
+            # -------------------------------------------------
+
             CallbackQueryHandler(
                 edit_min_start,
                 pattern=r"^edit_min$",
             ),
+
+            # -------------------------------------------------
+            # EDIT MAXIMUM PRICE
+            # -------------------------------------------------
+
             CallbackQueryHandler(
                 edit_max_start,
                 pattern=r"^edit_max$",
             ),
+
+            # -------------------------------------------------
+            # EDIT DELIVERY DAYS
+            # -------------------------------------------------
+
             CallbackQueryHandler(
                 edit_days_start,
                 pattern=r"^edit_days$",
@@ -228,44 +412,88 @@ def main():
 
         states={
 
+            # -------------------------------------------------
+            # NAME
+            # -------------------------------------------------
+
             EDIT_NAME: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     save_setting_value,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # NICHE
+            # -------------------------------------------------
+
+            EDIT_NICHE: [
+
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_setting_value,
+                ),
+
+            ],
+
+            # -------------------------------------------------
+            # SERVICES
+            # -------------------------------------------------
 
             EDIT_SERVICES: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     save_setting_value,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # MINIMUM PRICE
+            # -------------------------------------------------
 
             EDIT_MIN_PRICE: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     save_setting_value,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # MAXIMUM PRICE
+            # -------------------------------------------------
 
             EDIT_MAX_PRICE: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     save_setting_value,
-                )
+                ),
+
             ],
 
+            # -------------------------------------------------
+            # DELIVERY DAYS
+            # -------------------------------------------------
+
             EDIT_DAYS: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     save_setting_value,
-                )
+                ),
+
             ],
         },
 
@@ -283,16 +511,145 @@ def main():
         owner_settings_conversation
     )
 
+
     # =====================================================
-    # CLIENT ORDER CONVERSATION
+    # OWNER PAYMENT / SIGNATURE CONVERSATION
+    # =====================================================
+
+    owner_payment_signature_conversation = ConversationHandler(
+
+        entry_points=[
+
+            # -------------------------------------------------
+            # EDIT WALLET
+            # -------------------------------------------------
+
+            CallbackQueryHandler(
+                edit_wallet_start,
+                pattern=r"^edit_wallet$",
+            ),
+
+            # -------------------------------------------------
+            # EDIT SIGNATURE NAME
+            # -------------------------------------------------
+
+            CallbackQueryHandler(
+                edit_signature_name_start,
+                pattern=r"^edit_signature_name$",
+            ),
+
+            # -------------------------------------------------
+            # EDIT SIGNATURE TITLE
+            # -------------------------------------------------
+
+            CallbackQueryHandler(
+                edit_signature_title_start,
+                pattern=r"^edit_signature_title$",
+            ),
+
+            # -------------------------------------------------
+            # EDIT SIGNATURE IMAGE
+            # -------------------------------------------------
+
+            CallbackQueryHandler(
+                edit_signature_image_start,
+                pattern=r"^edit_signature_image$",
+            ),
+        ],
+
+        states={
+
+            # -------------------------------------------------
+            # WALLET
+            # -------------------------------------------------
+
+            EDIT_WALLET: [
+
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_wallet,
+                ),
+
+            ],
+
+            # -------------------------------------------------
+            # SIGNATURE NAME
+            # -------------------------------------------------
+
+            EDIT_SIGNATURE_NAME: [
+
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_signature_text,
+                ),
+
+            ],
+
+            # -------------------------------------------------
+            # SIGNATURE TITLE
+            # -------------------------------------------------
+
+            EDIT_SIGNATURE_TITLE: [
+
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    save_signature_text,
+                ),
+
+            ],
+
+            # -------------------------------------------------
+            # SIGNATURE IMAGE
+            # -------------------------------------------------
+
+            EDIT_SIGNATURE_IMAGE: [
+
+                MessageHandler(
+                    filters.PHOTO,
+                    save_signature_image,
+                ),
+
+            ],
+        },
+
+        fallbacks=[
+            CommandHandler(
+                "cancel",
+                cancel_setup,
+            ),
+        ],
+
+        allow_reentry=True,
+    )
+
+    application.add_handler(
+        owner_payment_signature_conversation
+    )
+
+
+    # =====================================================
+    # CLIENT ORDER / PROJECT INTAKE
     # =====================================================
 
     client_order_conversation = ConversationHandler(
+
         entry_points=[
+
+            # -------------------------------------------------
+            # NEW ORDER
+            # -------------------------------------------------
+
             CallbackQueryHandler(
                 new_order_start,
                 pattern=r"^new_order$",
             ),
+
+            # -------------------------------------------------
+            # EDIT EXISTING ORDER
+            # -------------------------------------------------
 
             CallbackQueryHandler(
                 edit_order_start,
@@ -302,60 +659,102 @@ def main():
 
         states={
 
+            # -------------------------------------------------
+            # CLIENT NAME
+            # -------------------------------------------------
+
             NAME: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     handle_client_name,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # QUESTION 1
+            # -------------------------------------------------
 
             QUESTION_1: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     handle_intake_answer,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # QUESTION 2
+            # -------------------------------------------------
 
             QUESTION_2: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     handle_intake_answer,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # QUESTION 3
+            # -------------------------------------------------
 
             QUESTION_3: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     handle_intake_answer,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # QUESTION 4
+            # -------------------------------------------------
 
             QUESTION_4: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     handle_intake_answer,
-                )
+                ),
+
             ],
+
+            # -------------------------------------------------
+            # QUESTION 5
+            # -------------------------------------------------
 
             QUESTION_5: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     handle_intake_answer,
-                )
+                ),
+
             ],
 
+            # -------------------------------------------------
+            # EDIT REQUEST
+            # -------------------------------------------------
+
             EDIT_REQUEST: [
+
                 MessageHandler(
                     filters.TEXT
                     & ~filters.COMMAND,
                     handle_edit_request,
-                )
+                ),
+
             ],
         },
 
@@ -373,6 +772,7 @@ def main():
         client_order_conversation
     )
 
+
     # =====================================================
     # /START
     # =====================================================
@@ -381,8 +781,9 @@ def main():
         CommandHandler(
             "start",
             start_command,
-        ),
+        )
     )
+
 
     # =====================================================
     # OWNER COMMANDS
@@ -416,8 +817,9 @@ def main():
         )
     )
 
+
     # =====================================================
-    # OWNER BUTTONS
+    # OWNER DASHBOARD
     # =====================================================
 
     application.add_handler(
@@ -441,8 +843,64 @@ def main():
         )
     )
 
+
     # =====================================================
-    # CLIENT BUTTONS
+    # OWNER PAYMENTS
+    # =====================================================
+
+    application.add_handler(
+        CallbackQueryHandler(
+            payments_menu,
+            pattern=r"^owner_payments$",
+        )
+    )
+
+
+    # =====================================================
+    # OWNER SIGNATURE
+    # =====================================================
+
+    application.add_handler(
+        CallbackQueryHandler(
+            signature_menu,
+            pattern=r"^owner_signature$",
+        )
+    )
+
+
+    # =====================================================
+    # OWNER ORDER DETAIL
+    # =====================================================
+
+    application.add_handler(
+        CallbackQueryHandler(
+            owner_job_detail,
+            pattern=r"^owner_job_\d+$",
+        )
+    )
+
+
+    # =====================================================
+    # PAUSE / RESUME ORDER CALLBACKS
+    # =====================================================
+
+    application.add_handler(
+        CallbackQueryHandler(
+            pause_job_callback,
+            pattern=r"^pause_job_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            resume_job_callback,
+            pattern=r"^resume_job_\d+$",
+        )
+    )
+
+
+    # =====================================================
+    # CLIENT HOME
     # =====================================================
 
     application.add_handler(
@@ -451,6 +909,11 @@ def main():
             pattern=r"^client_home$",
         )
     )
+
+
+    # =====================================================
+    # CLIENT ORDERS
+    # =====================================================
 
     application.add_handler(
         CallbackQueryHandler(
@@ -466,6 +929,11 @@ def main():
         )
     )
 
+
+    # =====================================================
+    # PAYMENTS
+    # =====================================================
+
     application.add_handler(
         CallbackQueryHandler(
             payment_page,
@@ -480,12 +948,22 @@ def main():
         )
     )
 
+
+    # =====================================================
+    # PROPOSALS
+    # =====================================================
+
     application.add_handler(
         CallbackQueryHandler(
             view_proposal,
             pattern=r"^proposal_\d+$",
         )
     )
+
+
+    # =====================================================
+    # SERVICES
+    # =====================================================
 
     application.add_handler(
         CallbackQueryHandler(
@@ -494,6 +972,11 @@ def main():
         )
     )
 
+
+    # =====================================================
+    # CONTACT
+    # =====================================================
+
     application.add_handler(
         CallbackQueryHandler(
             contact_studio,
@@ -501,8 +984,9 @@ def main():
         )
     )
 
+
     # =====================================================
-    # TEXT "PAID" FALLBACK
+    # PAYMENT TEXT FALLBACK
     # =====================================================
 
     application.add_handler(
@@ -513,12 +997,59 @@ def main():
         )
     )
 
+
+    return application
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    # -----------------------------------------------------
+    # INITIALIZE DATABASE
+    # -----------------------------------------------------
+
+    init_db()
+
+    # -----------------------------------------------------
+    # BUILD APPLICATION
+    # -----------------------------------------------------
+
+    application = build_application()
+
+    # -----------------------------------------------------
+    # LOG
+    # -----------------------------------------------------
+
     print(
         "Sovereign Business Operator is running..."
     )
 
+    print(
+        "Business-agnostic client intake enabled."
+    )
+
+    print(
+        "Base USDC payment system enabled."
+    )
+
+    print(
+        "Owner payment and signature controls enabled."
+    )
+
+    # -----------------------------------------------------
+    # START BOT
+    # -----------------------------------------------------
+
     application.run_polling()
 
 
+# =========================================================
+# ENTRY POINT
+# =========================================================
+
 if __name__ == "__main__":
     main()
+

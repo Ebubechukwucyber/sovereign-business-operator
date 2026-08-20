@@ -1,3 +1,4 @@
+import re
 import httpx
 
 from config import (
@@ -9,57 +10,535 @@ from config import (
 from prompts import SYSTEM_PROMPT
 
 
-def build_proposal_prompt(
-    owner,
-    answers: dict,
-    price: float,
-) -> str:
+# =========================================================
+# SAFE HELPERS
+# =========================================================
+
+def _safe_float(value, default=0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _owner_value(owner, key, default=None):
+
+    if owner is None:
+        return default
+
+    try:
+
+        if isinstance(owner, dict):
+            return owner.get(key, default)
+
+        return owner[key]
+
+    except (
+        KeyError,
+        IndexError,
+        TypeError,
+    ):
+        return default
+
+
+# =========================================================
+# NUMBER EXTRACTION
+# =========================================================
+
+def _extract_number(text):
+
+    if not text:
+        return None
+
+    match = re.search(
+        r"\b(\d+(?:\.\d+)?)\b",
+        str(text),
+    )
+
+    if not match:
+        return None
+
+    try:
+
+        number = float(
+            match.group(1)
+        )
+
+        if number <= 0:
+            return None
+
+        return number
+
+    except ValueError:
+
+        return None
+
+
+# =========================================================
+# QUANTITY EXTRACTION
+# =========================================================
+
+def _extract_quantity(answers):
+
+    answers = answers or {}
+
+    possible_fields = [
+        "quantity",
+        "people",
+        "guests",
+        "items",
+        "locations",
+        "hours",
+        "products",
+        "deliverables",
+        "units",
+        "scope",
+    ]
+
+    for field in possible_fields:
+
+        value = answers.get(field)
+
+        number = _extract_number(value)
+
+        if number is not None:
+            return number
+
+    combined = " ".join(
+        str(value)
+        for value in answers.values()
+        if value
+    )
+
+    return _extract_number(
+        combined
+    )
+
+
+# =========================================================
+# DAYS
+# =========================================================
+
+def _extract_days(text):
+
+    if not text:
+        return None
+
+    value = str(
+        text
+    ).lower().strip()
+
+    if "today" in value:
+        return 0
+
+    if "tomorrow" in value:
+        return 1
+
+    week_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*weeks?",
+        value,
+    )
+
+    if week_match:
+
+        return (
+            float(
+                week_match.group(1)
+            )
+            * 7
+        )
+
+    hour_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*hours?",
+        value,
+    )
+
+    if hour_match:
+
+        return max(
+            float(
+                hour_match.group(1)
+            ) / 24,
+            0,
+        )
+
+    day_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*days?",
+        value,
+    )
+
+    if day_match:
+
+        return float(
+            day_match.group(1)
+        )
+
+    return None
+
+
+# =========================================================
+# BUSINESS CONTEXT
+# =========================================================
+
+def _business_context(owner):
+
+    name = _owner_value(
+        owner,
+        "name",
+        "Business",
+    )
+
+    niche = _owner_value(
+        owner,
+        "niche",
+        "",
+    )
+
+    services = _owner_value(
+        owner,
+        "services_text",
+        "",
+    )
+
+    minimum = _safe_float(
+        _owner_value(
+            owner,
+            "min_price",
+            150,
+        ),
+        150,
+    )
+
+    maximum = _safe_float(
+        _owner_value(
+            owner,
+            "max_price",
+            400,
+        ),
+        400,
+    )
+
+    default_days = _safe_float(
+        _owner_value(
+            owner,
+            "default_days",
+            7,
+        ),
+        7,
+    )
+
+    tone = _owner_value(
+        owner,
+        "tone",
+        "professional",
+    )
 
     return f"""
-Create a professional client business proposal for a landing-page project.
+BUSINESS NAME:
+{name}
 
-Studio:
-{owner["name"]}
+BUSINESS TYPE:
+{niche or "Not specified"}
 
-Client requirements:
-- Page purpose: {answers.get("page_for", "Not provided")}
-- Number of pages/sections: {answers.get("sections", "Not provided")}
-- Deadline: {answers.get("deadline", "Not provided")}
-- Existing copy/brand: {answers.get("brand_copy", "Not provided")}
-- Client budget: {answers.get("budget", "Not provided")}
+SERVICES / PRODUCTS:
+{services or "Not specified"}
 
-APPROVED PROJECT PRICE:
+APPROVED PRICE RANGE:
+${minimum:.0f} - ${maximum:.0f} USD
+
+STANDARD DELIVERY / FULFILLMENT:
+{default_days:g} days
+
+PREFERRED TONE:
+{tone or "professional"}
+""".strip()
+
+
+# =========================================================
+# BUSINESS TYPE DETECTION
+# =========================================================
+
+def _business_category(owner):
+
+    niche = str(
+        _owner_value(
+            owner,
+            "niche",
+            "",
+        )
+    ).lower()
+
+    services = str(
+        _owner_value(
+            owner,
+            "services_text",
+            "",
+        )
+    ).lower()
+
+    combined = (
+        niche
+        + " "
+        + services
+    )
+
+    if any(
+        word in combined
+        for word in [
+            "catering",
+            "food delivery",
+            "restaurant",
+            "bakery",
+            "food",
+            "chef",
+        ]
+    ):
+        return "food"
+
+    if any(
+        word in combined
+        for word in [
+            "cleaning",
+            "laundry",
+            "janitorial",
+            "housekeeping",
+        ]
+    ):
+        return "cleaning"
+
+    if any(
+        word in combined
+        for word in [
+            "photography",
+            "photographer",
+            "videography",
+            "video",
+        ]
+    ):
+        return "creative"
+
+    if any(
+        word in combined
+        for word in [
+            "design",
+            "graphic",
+            "branding",
+        ]
+    ):
+        return "design"
+
+    if any(
+        word in combined
+        for word in [
+            "construction",
+            "building",
+            "renovation",
+            "plumbing",
+            "electrical",
+        ]
+    ):
+        return "construction"
+
+    if any(
+        word in combined
+        for word in [
+            "logistics",
+            "delivery",
+            "transport",
+            "moving",
+            "dispatch",
+        ]
+    ):
+        return "logistics"
+
+    if any(
+        word in combined
+        for word in [
+            "consulting",
+            "consultant",
+            "advisory",
+            "coaching",
+        ]
+    ):
+        return "consulting"
+
+    if any(
+        word in combined
+        for word in [
+            "salon",
+            "barber",
+            "beauty",
+            "spa",
+        ]
+    ):
+        return "beauty"
+
+    return "general"
+
+
+# =========================================================
+# PROPOSAL PROMPT
+# =========================================================
+
+def build_proposal_prompt(
+    owner,
+    answers,
+    price,
+):
+
+    answers = answers or {}
+
+    purpose = answers.get(
+        "project",
+        answers.get(
+            "service",
+            "Not provided",
+        ),
+    )
+
+    requirements = answers.get(
+        "requirements",
+        answers.get(
+            "brand_copy",
+            "Not provided",
+        ),
+    )
+
+    quantity = answers.get(
+        "quantity",
+        answers.get(
+            "sections",
+            "Not provided",
+        ),
+    )
+
+    deadline = answers.get(
+        "deadline",
+        "Not provided",
+    )
+
+    additional = answers.get(
+        "additional",
+        "",
+    )
+
+    change_request = answers.get(
+        "client_revision_request",
+        answers.get(
+            "change_request",
+            "",
+        ),
+    )
+
+    default_days = _safe_float(
+        _owner_value(
+            owner,
+            "default_days",
+            7,
+        ),
+        7,
+    )
+
+    category = _business_category(
+        owner
+    )
+
+    return f"""
+You are Sovereign's professional proposal writer.
+
+IMPORTANT:
+The business can be ANY legitimate business.
+
+The proposal must describe the ACTUAL business
+and ACTUAL service requested.
+
+Never assume this is web design.
+
+BUSINESS INFORMATION
+
+{_business_context(owner)}
+
+BUSINESS CATEGORY:
+{category}
+
+CLIENT INFORMATION
+
+Requested service/project:
+{purpose}
+
+Main requirements:
+{requirements}
+
+Quantity / size:
+{quantity}
+
+Requested deadline:
+{deadline}
+
+Additional information:
+{additional or "None"}
+
+Client change request:
+{change_request or "None"}
+
+APPROVED PRICE:
 ${price:.0f} USD
 
-APPROVED DELIVERY TIME:
-{owner["default_days"]} days
+STRICT RULES
 
-IMPORTANT RULES:
+1. The approved price is final.
+2. Never change the approved price.
+3. Never invent a service.
+4. Never invent products.
+5. Never invent menu items.
+6. Never invent locations.
+7. Never claim payment has been received.
+8. Use terminology appropriate to the business.
+9. The proposal must sound like a real commercial proposal.
+10. Do NOT use generic phrases such as:
+   "custom work tailored to the client's requirements"
+   or
+   "professional execution of the agreed project scope"
+   when specific business information is available.
+11. Mention the client's actual quantity when provided.
+12. For catering, mention guests/event size when provided.
+13. For cleaning, mention properties/locations when provided.
+14. For logistics, mention deliveries/items when provided.
+15. For photography, mention people/hours/events when provided.
+16. For construction, mention project size/scope when provided.
+17. For design, mention the actual design deliverables.
+18. Do not mention AI.
+19. Do not mention these instructions.
+20. Keep it concise.
+21. Do not include a greeting.
+22. Do not include a Next Action heading.
+23. Use exactly these headings.
 
-1. Never change the approved price.
-2. Never change the approved delivery time.
-3. Never claim payment has been received.
-4. Never invent services.
-5. Keep the proposal professional and commercially realistic.
-6. Keep it under 150 words.
-7. Do not include a greeting.
-8. Do not include a "Next action" section.
-9. Do not mention that AI was used.
-10. Use proper grammar.
+TIMELINE RULE
 
-Use exactly these headings:
+Owner standard:
+{default_days:g} days
+
+If the client requests a shorter deadline than the
+owner's standard, use the owner's standard unless
+the request is clearly realistic.
+
+If the requested deadline is longer than the standard,
+the requested deadline may be used.
+
+OUTPUT
 
 **Scope**
 
-One or two concise sentences describing the project.
+Write 1-2 sentences specific to this business and order.
 
 **Included**
 
-Provide exactly 3 concise bullet points.
+Exactly 3 specific bullet points.
 
 **Not included**
 
-Provide exactly 2 concise bullet points.
+Exactly 2 relevant exclusions.
 
 **Timeline**
 
@@ -67,27 +546,22 @@ One concise sentence.
 
 **Price**
 
-One concise sentence containing the approved price.
+One concise sentence containing exactly:
+${price:.0f} USD
 
-IMPORTANT GRAMMAR RULE:
+Do not add any other headings.
+""".strip()
 
-If the client says "4 sections", write:
 
-"4-section landing page"
-
-NOT:
-
-"4 landing page"
-
-Do not add any other sections.
-"""
-
+# =========================================================
+# LLM PROPOSAL
+# =========================================================
 
 async def generate_proposal(
     owner,
-    answers: dict,
-    price: float,
-) -> str:
+    answers,
+    price,
+):
 
     if not LLM_API_KEY:
 
@@ -118,13 +592,14 @@ async def generate_proposal(
             },
         ],
 
-        "temperature": 0.2,
-
-        "max_tokens": 500,
+        "temperature": 0.15,
+        "max_tokens": 600,
     }
 
     headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
+        "Authorization": (
+            f"Bearer {LLM_API_KEY}"
+        ),
         "Content-Type": "application/json",
     }
 
@@ -144,15 +619,22 @@ async def generate_proposal(
 
     try:
 
-        content = data["choices"][0]["message"]["content"]
+        content = (
+            data["choices"][0]
+            ["message"]["content"]
+        )
 
-    except (KeyError, IndexError, TypeError):
+    except (
+        KeyError,
+        IndexError,
+        TypeError,
+    ):
 
         raise RuntimeError(
             "Unexpected response from LLM."
         )
 
-    if not content:
+    if not content or not content.strip():
 
         raise RuntimeError(
             "LLM returned an empty proposal."
@@ -161,146 +643,248 @@ async def generate_proposal(
     return content.strip()
 
 
+# =========================================================
+# PRICING
+# =========================================================
+
 def calculate_price(
     owner,
-    answers: dict,
-) -> float:
+    answers,
+):
 
-    """
-    Deterministic pricing.
+    answers = answers or {}
 
-    Base:
-        $150 for a simple landing page.
+    minimum = _safe_float(
+        _owner_value(
+            owner,
+            "min_price",
+            150,
+        ),
+        150,
+    )
 
-    Extra:
-        +$50 per additional major section.
+    maximum = _safe_float(
+        _owner_value(
+            owner,
+            "max_price",
+            400,
+        ),
+        400,
+    )
 
-    Rush:
-        +40% when deadline is under 3 days.
+    if maximum < minimum:
+        maximum = minimum
 
-    Finally:
-        Respect owner's configured min/max price.
-    """
+    category = _business_category(
+        owner
+    )
+
+    quantity = _extract_quantity(
+        answers
+    )
+
+    price = minimum
 
     # -----------------------------------------------------
-    # BASE PRICE
+    # QUANTITY PRICING
     # -----------------------------------------------------
 
-    price = 150.0
+    if quantity is not None:
+
+        if category == "food":
+
+            if quantity <= 5:
+                multiplier = 1.00
+
+            elif quantity <= 10:
+                multiplier = 1.10
+
+            elif quantity <= 20:
+                multiplier = 1.25
+
+            elif quantity <= 40:
+                multiplier = 1.55
+
+            elif quantity <= 75:
+                multiplier = 1.85
+
+            elif quantity <= 150:
+                multiplier = 2.40
+
+            else:
+                multiplier = 3.00
+
+        elif category == "cleaning":
+
+            if quantity <= 1:
+                multiplier = 1.00
+
+            elif quantity <= 3:
+                multiplier = 1.25
+
+            elif quantity <= 5:
+                multiplier = 1.50
+
+            else:
+                multiplier = 1.85
+
+        elif category == "logistics":
+
+            if quantity <= 1:
+                multiplier = 1.00
+
+            elif quantity <= 5:
+                multiplier = 1.25
+
+            elif quantity <= 10:
+                multiplier = 1.50
+
+            elif quantity <= 25:
+                multiplier = 2.00
+
+            else:
+                multiplier = 2.75
+
+        else:
+
+            if quantity <= 3:
+                multiplier = 1.00
+
+            elif quantity <= 10:
+                multiplier = 1.15
+
+            elif quantity <= 25:
+                multiplier = 1.35
+
+            elif quantity <= 50:
+                multiplier = 1.60
+
+            else:
+                multiplier = 1.85
+
+        price *= multiplier
 
     # -----------------------------------------------------
-    # SECTION COUNT
+    # EXTRA LARGE JOB BUFFER
     # -----------------------------------------------------
 
-    sections_text = str(
-        answers.get(
-            "sections",
-            "",
-        )
-    ).lower()
+    if quantity is not None:
 
-    section_count = None
+        if category == "food":
 
-    # Try to find a number.
-    for word in (
-        sections_text
-        .replace(",", " ")
-        .replace("-", " ")
-        .split()
+            if quantity > 40:
+                price *= 1.10
+
+            if quantity > 100:
+                price *= 1.15
+
+        elif quantity > 25:
+
+            price *= 1.10
+
+    # -----------------------------------------------------
+    # URGENCY
+    # -----------------------------------------------------
+
+    deadline_text = answers.get(
+        "deadline",
+        "",
+    )
+
+    deadline_days = _extract_days(
+        deadline_text
+    )
+
+    standard_days = _safe_float(
+        _owner_value(
+            owner,
+            "default_days",
+            7,
+        ),
+        7,
+    )
+
+    if (
+        deadline_days is not None
+        and standard_days > 0
+        and deadline_days < standard_days
+    ):
+
+        if deadline_days <= 1:
+            rush_multiplier = 1.50
+
+        elif deadline_days <= 3:
+            rush_multiplier = 1.30
+
+        else:
+            rush_multiplier = 1.15
+
+        price *= rush_multiplier
+
+    # -----------------------------------------------------
+    # OWNER BUSINESS RULES
+    # -----------------------------------------------------
+
+    rules_raw = _owner_value(
+        owner,
+        "business_rules",
+        "",
+    )
+
+    rules = {}
+
+    if isinstance(
+        rules_raw,
+        dict,
+    ):
+        rules = rules_raw
+
+    elif isinstance(
+        rules_raw,
+        str,
     ):
 
         try:
 
-            number = int(word)
+            import json
 
-            if number > 0:
+            parsed = json.loads(
+                rules_raw
+            )
 
-                section_count = number
+            if isinstance(
+                parsed,
+                dict,
+            ):
+                rules = parsed
 
-                break
+        except Exception:
+            rules = {}
 
-        except ValueError:
-
-            continue
-
-    # Extra sections.
-    if section_count:
-
-        extra_sections = max(
-            section_count - 1,
+    buffer_percent = _safe_float(
+        rules.get(
+            "buffer_percent",
             0,
-        )
-
-        price += (
-            extra_sections * 50
-        )
-
-    # -----------------------------------------------------
-    # RUSH PRICE
-    # -----------------------------------------------------
-
-    deadline = str(
-        answers.get(
-            "deadline",
-            "",
-        )
-    ).lower()
-
-    rush_terms = [
-        "today",
-        "tomorrow",
-        "1 day",
-        "2 days",
-        "48 hours",
-        "24 hours",
-    ]
-
-    is_rush = any(
-        term in deadline
-        for term in rush_terms
+        ),
+        0,
     )
 
-    if is_rush:
+    if buffer_percent > 0:
 
-        price *= 1.40
-
-    # -----------------------------------------------------
-    # OWNER PRICE LIMITS
-    # -----------------------------------------------------
-
-    try:
-
-        minimum = float(
-            owner["min_price"]
+        price *= (
+            1
+            + buffer_percent / 100
         )
 
-    except (
-        TypeError,
-        ValueError,
-    ):
+    # -----------------------------------------------------
+    # OWNER LIMITS
+    # -----------------------------------------------------
 
-        minimum = 150.0
-
-    try:
-
-        maximum = float(
-            owner["max_price"]
-        )
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-
-        maximum = 400.0
-
-    # Minimum.
     price = max(
         price,
         minimum,
     )
 
-    # Maximum.
     price = min(
         price,
         maximum,
@@ -312,63 +896,241 @@ def calculate_price(
     )
 
 
+# =========================================================
+# TIMELINE
+# =========================================================
+
+def calculate_timeline(
+    owner,
+    answers,
+):
+
+    answers = answers or {}
+
+    standard_days = _safe_float(
+        _owner_value(
+            owner,
+            "default_days",
+            7,
+        ),
+        7,
+    )
+
+    requested_days = _extract_days(
+        answers.get(
+            "deadline",
+            "",
+        )
+    )
+
+    if requested_days is not None:
+
+        if requested_days >= standard_days:
+            final_days = requested_days
+
+        else:
+            final_days = standard_days
+
+    else:
+
+        final_days = standard_days
+
+    if float(final_days).is_integer():
+
+        final_days = int(
+            final_days
+        )
+
+    return f"{final_days} days"
+
+
+# =========================================================
+# DETERMINISTIC FALLBACK
+# =========================================================
+
 def template_proposal(
     owner,
-    answers: dict,
-    price: float,
-) -> str:
+    answers,
+    price,
+):
 
-    """
-    Deterministic fallback if the LLM fails.
-    This ensures the business flow still works.
-    """
+    answers = answers or {}
+
+    category = _business_category(
+        owner
+    )
 
     purpose = answers.get(
-        "page_for",
-        "your business",
+        "project",
+        answers.get(
+            "service",
+            "the requested service",
+        ),
     )
 
-    sections = answers.get(
-        "sections",
-        "requested",
+    requirements = answers.get(
+        "requirements",
+        "",
     )
 
-    # Make the grammar sensible.
-    sections_text = str(
-        sections
-    ).strip()
+    quantity = _extract_quantity(
+        answers
+    )
 
-    if sections_text:
+    quantity_text = answers.get(
+        "quantity",
+        "",
+    )
+
+    timeline = calculate_timeline(
+        owner,
+        answers,
+    )
+
+    # -----------------------------------------------------
+    # FOOD / CATERING
+    # -----------------------------------------------------
+
+    if category == "food":
 
         scope = (
-            f"Design and develop a "
-            f"{sections_text}-section landing page "
-            f"for {purpose}."
+            f"Provide {purpose}."
         )
+
+        if quantity:
+
+            scope += (
+                f" The order is planned for "
+                f"{int(quantity)} guests."
+            )
+
+        included = [
+            "Food preparation and catering for the agreed guest count",
+            "Preparation of the agreed menu and service requirements",
+            "Order coordination and delivery/fulfillment as agreed",
+        ]
+
+        excluded = [
+            "Additional guests or menu items outside the approved order",
+            "Venue, equipment, or third-party costs not included in the quote",
+        ]
+
+    # -----------------------------------------------------
+    # CLEANING
+    # -----------------------------------------------------
+
+    elif category == "cleaning":
+
+        scope = (
+            f"Provide {purpose}."
+        )
+
+        if quantity:
+
+            scope += (
+                f" The requested scope covers "
+                f"{int(quantity)} service unit(s)."
+            )
+
+        included = [
+            "Professional cleaning service for the agreed scope",
+            "Cleaning supplies and procedures appropriate to the service",
+            "Completion and handover of the agreed cleaning work",
+        ]
+
+        excluded = [
+            "Additional areas or services outside the approved scope",
+            "Specialist restoration or third-party costs unless agreed",
+        ]
+
+    # -----------------------------------------------------
+    # LOGISTICS
+    # -----------------------------------------------------
+
+    elif category == "logistics":
+
+        scope = (
+            f"Provide {purpose}."
+        )
+
+        if quantity:
+
+            scope += (
+                f" The requested scope involves "
+                f"{int(quantity)} delivery unit(s)."
+            )
+
+        included = [
+            "Handling and fulfillment of the agreed delivery scope",
+            "Coordination of the agreed pickup/drop-off requirements",
+            "Delivery completion according to the approved schedule",
+        ]
+
+        excluded = [
+            "Additional deliveries outside the approved scope",
+            "Third-party charges, tolls, or special handling unless agreed",
+        ]
+
+    # -----------------------------------------------------
+    # GENERAL
+    # -----------------------------------------------------
 
     else:
 
         scope = (
-            f"Design and develop a professional "
-            f"landing page for {purpose}."
+            f"Provide {purpose} "
+            "according to the client's stated requirements."
         )
+
+        if quantity_text:
+
+            scope += (
+                f" The requested scope is "
+                f"{quantity_text}."
+            )
+
+        included = [
+            "Professional execution of the agreed service",
+            "Work aligned with the client's stated requirements",
+            "Completion of the approved project scope",
+        ]
+
+        excluded = [
+            "Additional work outside the approved scope",
+            "Third-party costs or services not included in the quote",
+        ]
+
+    if requirements:
+
+        scope += (
+            f" Key requirements include: "
+            f"{requirements}."
+        )
+
+    included_text = "\n".join(
+        f"- {item}"
+        for item in included
+    )
+
+    excluded_text = "\n".join(
+        f"- {item}"
+        for item in excluded
+    )
 
     return (
         "**Scope**\n"
         f"{scope}\n\n"
 
         "**Included**\n"
-        "- Landing page structure and layout\n"
-        "- Responsive desktop and mobile design\n"
-        "- Content and section structure\n\n"
+        f"{included_text}\n\n"
 
         "**Not included**\n"
-        "- Domain and hosting costs\n"
-        "- Logo or full brand identity development\n\n"
+        f"{excluded_text}\n\n"
 
         "**Timeline**\n"
-        f"{owner['default_days']} days.\n\n"
+        f"Fulfillment within {timeline} "
+        "from project confirmation.\n\n"
 
         "**Price**\n"
-        f"${price:.0f} USD."
+        f"Total project cost: ${price:.0f} USD."
     )

@@ -3,10 +3,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-from telegram.ext import (
-    ConversationHandler,
-    ContextTypes,
-)
+from telegram.ext import ConversationHandler
 
 from config import OWNER_TELEGRAM_ID
 
@@ -16,6 +13,10 @@ from db import (
     get_all_jobs,
     get_job,
     set_job_paused,
+    get_business_rules,
+    save_business_rules,
+    get_owner_signature,
+    save_owner_signature,
 )
 
 
@@ -24,27 +25,40 @@ from db import (
 # =========================================================
 
 SETUP_NAME = 100
-SETUP_SERVICES = 101
-SETUP_MIN_PRICE = 102
-SETUP_MAX_PRICE = 103
-SETUP_DAYS = 104
+SETUP_NICHE = 101
+SETUP_SERVICES = 102
+SETUP_MIN_PRICE = 103
+SETUP_MAX_PRICE = 104
+SETUP_DAYS = 105
 
 EDIT_NAME = 110
-EDIT_SERVICES = 111
-EDIT_MIN_PRICE = 112
-EDIT_MAX_PRICE = 113
-EDIT_DAYS = 114
+EDIT_NICHE = 111
+EDIT_SERVICES = 112
+EDIT_MIN_PRICE = 113
+EDIT_MAX_PRICE = 114
+EDIT_DAYS = 115
 
-
-def owner_only(update: Update) -> bool:
-    return (
-        update.effective_user.id
-        == OWNER_TELEGRAM_ID
-    )
+EDIT_WALLET = 120
+EDIT_SIGNATURE_NAME = 121
+EDIT_SIGNATURE_TITLE = 122
+EDIT_SIGNATURE_IMAGE = 123
 
 
 # =========================================================
-# OWNER MENU
+# AUTHORIZATION
+# =========================================================
+
+def owner_only(update: Update) -> bool:
+    user = update.effective_user
+
+    if not user:
+        return False
+
+    return user.id == OWNER_TELEGRAM_ID
+
+
+# =========================================================
+# COMMON
 # =========================================================
 
 def owner_menu_keyboard():
@@ -52,19 +66,65 @@ def owner_menu_keyboard():
         [
             [
                 InlineKeyboardButton(
-                    "📦 Jobs",
+                    "📦 Orders",
                     callback_data="owner_jobs",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "⚙️ Studio Settings",
+                    "⚙️ Business Settings",
                     callback_data="owner_settings",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "💳 Payments",
+                    callback_data="owner_payments",
+                ),
+                InlineKeyboardButton(
+                    "✍️ Signature",
+                    callback_data="owner_signature",
                 ),
             ],
         ]
     )
 
+
+def back_owner_keyboard():
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "🏠 Owner Menu",
+                    callback_data="owner_home",
+                )
+            ]
+        ]
+    )
+
+
+def back_settings_keyboard():
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "⬅️ Business Settings",
+                    callback_data="owner_settings",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🏠 Owner Menu",
+                    callback_data="owner_home",
+                )
+            ],
+        ]
+    )
+
+
+# =========================================================
+# OWNER HOME
+# =========================================================
 
 async def owner_home(update, context):
 
@@ -72,29 +132,51 @@ async def owner_home(update, context):
         return
 
     if update.callback_query:
-        await update.callback_query.answer()
-        message = update.callback_query.message
+        query = update.callback_query
+        await query.answer()
+        message = query.message
     else:
         message = update.message
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = get_owner(OWNER_TELEGRAM_ID)
 
-    if owner and owner["setup_complete"]:
+    if not owner or not owner["setup_complete"]:
 
         await message.reply_text(
-            f"🏢 {owner['name']}\n\n"
-            "Owner control panel.",
-            reply_markup=owner_menu_keyboard(),
-        )
-
-    else:
-
-        await message.reply_text(
-            "Your studio isn't configured yet.\n\n"
+            "Your business isn't configured yet.\n\n"
             "Use /setup to get started."
         )
+
+        return
+
+    wallet = (
+        owner["usdc_address"]
+        or "Not configured"
+    )
+
+    signature_name = (
+        owner["signature_name"]
+        or "Not configured"
+    )
+
+    await message.reply_text(
+        f"🏢 {owner['name']}\n\n"
+        f"Business type: "
+        f"{owner['niche'] or 'Not specified'}\n"
+        f"Services/products: "
+        f"{owner['services_text'] or 'Not specified'}\n\n"
+        f"💵 Price range: "
+        f"${float(owner['min_price'] or 0):.2f}"
+        f" - "
+        f"${float(owner['max_price'] or 0):.2f}\n"
+        f"⏱ Delivery: "
+        f"{owner['default_days']} days\n"
+        f"💳 Base USDC: "
+        f"{'Configured' if wallet != 'Not configured' else 'Not configured'}\n"
+        f"✍️ Signature: {signature_name}\n\n"
+        "Owner control panel.",
+        reply_markup=owner_menu_keyboard(),
+    )
 
 
 # =========================================================
@@ -109,8 +191,8 @@ async def setup_start(update, context):
     context.user_data["setup"] = {}
 
     await update.message.reply_text(
-        "Let's configure your studio.\n\n"
-        "What is your studio/business name?"
+        "Let's configure your business.\n\n"
+        "What is your business name?"
     )
 
     return SETUP_NAME
@@ -122,14 +204,44 @@ async def setup_name(update, context):
 
     if not value:
         await update.message.reply_text(
-            "Please enter your studio name."
+            "Please enter your business name."
         )
         return SETUP_NAME
 
     context.user_data["setup"]["name"] = value
 
     await update.message.reply_text(
-        "What services do you sell?"
+        "What type of business is this?\n\n"
+        "Examples:\n"
+        "• Catering\n"
+        "• Bakery\n"
+        "• Cleaning service\n"
+        "• Photography\n"
+        "• Graphic design\n"
+        "• Construction\n"
+        "• Logistics\n"
+        "• Consulting\n"
+        "• Beauty salon"
+    )
+
+    return SETUP_NICHE
+
+
+async def setup_niche(update, context):
+
+    value = update.message.text.strip()
+
+    if not value:
+        await update.message.reply_text(
+            "Please enter your business type."
+        )
+        return SETUP_NICHE
+
+    context.user_data["setup"]["niche"] = value
+
+    await update.message.reply_text(
+        "What services or products do you offer?\n\n"
+        "List the main things customers can buy."
     )
 
     return SETUP_SERVICES
@@ -141,14 +253,14 @@ async def setup_services(update, context):
 
     if not value:
         await update.message.reply_text(
-            "Please enter your services."
+            "Please enter your services or products."
         )
         return SETUP_SERVICES
 
     context.user_data["setup"]["services"] = value
 
     await update.message.reply_text(
-        "What is your minimum project price in USD?"
+        "What is your minimum project/order price in USD?"
     )
 
     return SETUP_MIN_PRICE
@@ -157,25 +269,21 @@ async def setup_services(update, context):
 async def setup_min_price(update, context):
 
     try:
-        value = float(
-            update.message.text.strip()
-        )
+        value = float(update.message.text.strip())
 
         if value <= 0:
             raise ValueError
 
     except ValueError:
-
         await update.message.reply_text(
-            "Enter a valid number, e.g. 150."
+            "Enter a valid number, e.g. 50."
         )
-
         return SETUP_MIN_PRICE
 
     context.user_data["setup"]["min_price"] = value
 
     await update.message.reply_text(
-        "What is your maximum project price in USD?"
+        "What is your maximum project/order price in USD?"
     )
 
     return SETUP_MAX_PRICE
@@ -184,25 +292,21 @@ async def setup_min_price(update, context):
 async def setup_max_price(update, context):
 
     try:
-        value = float(
-            update.message.text.strip()
-        )
+        value = float(update.message.text.strip())
 
         if value <= 0:
             raise ValueError
 
     except ValueError:
-
         await update.message.reply_text(
-            "Enter a valid number, e.g. 400."
+            "Enter a valid number, e.g. 1000."
         )
-
         return SETUP_MAX_PRICE
 
     context.user_data["setup"]["max_price"] = value
 
     await update.message.reply_text(
-        "What's your default delivery time in days?"
+        "What's your standard delivery/fulfillment time in days?"
     )
 
     return SETUP_DAYS
@@ -211,19 +315,15 @@ async def setup_max_price(update, context):
 async def setup_days(update, context):
 
     try:
-        days = int(
-            update.message.text.strip()
-        )
+        days = int(update.message.text.strip())
 
         if days <= 0:
             raise ValueError
 
     except ValueError:
-
         await update.message.reply_text(
             "Enter a whole number, e.g. 7."
         )
-
         return SETUP_DAYS
 
     data = context.user_data["setup"]
@@ -237,37 +337,88 @@ async def setup_days(update, context):
 
         return SETUP_MAX_PRICE
 
+    business_rules = {
+        "pricing": {
+            "enabled": True,
+            "model": "per_unit",
+            "currency": "USD",
+            "base_fee": 0.0,
+            "unit": {
+                "name": "unit",
+                "price": data["min_price"],
+            },
+            "minimum": data["min_price"],
+            "maximum": data["max_price"],
+            "adjustments": [],
+            "owner_approval": {
+                "required": True,
+                "required_above_maximum": True,
+                "required_below_minimum": True,
+                "required_for_manual_override": True,
+            },
+            "rounding": {
+                "enabled": False,
+                "nearest": 1,
+            },
+        },
+
+        "buffer_percent": 0,
+        "complexity_buffer_percent": 0,
+        "complexity_days_buffer": 0,
+        "large_quantity_threshold": 20,
+        "large_project_days": 0,
+        "rush_multiplier": 1.0,
+        "quantity_pricing": True,
+        "quantity_multiplier_enabled": True,
+        "notes": "",
+    }
+
     save_owner(
         telegram_id=OWNER_TELEGRAM_ID,
         name=data["name"],
-        niche="landing pages",
+        niche=data["niche"],
         services_text=data["services"],
         min_price=data["min_price"],
         max_price=data["max_price"],
         default_days=days,
         tone="professional",
+        usdc_address="",
         setup_complete=1,
+        business_rules=business_rules,
+        signature_name="",
+        signature_title="",
+        signature_image="",
     )
 
-    context.user_data.pop(
-        "setup",
-        None,
-    )
+    context.user_data.pop("setup", None)
 
     await update.message.reply_text(
-        "✅ Studio setup complete.\n\n"
-        "Your business is ready to accept orders."
+        "✅ Business setup complete.\n\n"
+        f"Business: {data['name']}\n"
+        f"Type: {data['niche']}\n"
+        f"Services: {data['services']}\n"
+        f"Price range: "
+        f"${data['min_price']:.2f} - "
+        f"${data['max_price']:.2f}\n"
+        f"Standard fulfillment: {days} days\n\n"
+        "💰 Pricing engine: ACTIVE\n"
+        "💳 Payment network: Base\n"
+        "🪙 Payment token: USDC\n\n"
+        "Next, configure your Base USDC wallet "
+        "and business signature from Owner Settings."
     )
 
     return ConversationHandler.END
 
 
+# =========================================================
+# CANCEL
+# =========================================================
+
 async def cancel_setup(update, context):
 
-    context.user_data.pop(
-        "setup",
-        None,
-    )
+    context.user_data.pop("setup", None)
+    context.user_data.pop("editing_setting", None)
 
     await update.message.reply_text(
         "Setup cancelled."
@@ -277,21 +428,28 @@ async def cancel_setup(update, context):
 
 
 # =========================================================
-# SETTINGS
+# BUSINESS SETTINGS
 # =========================================================
 
 def settings_keyboard():
+
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
-                    "🏢 Studio Name",
+                    "🏢 Business Name",
                     callback_data="edit_name",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "🛠 Services",
+                    "🏷️ Business Type",
+                    callback_data="edit_niche",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "🛠 Services / Products",
                     callback_data="edit_services",
                 ),
             ],
@@ -309,6 +467,18 @@ def settings_keyboard():
                 InlineKeyboardButton(
                     "⏱ Delivery Days",
                     callback_data="edit_days",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "💳 Base USDC Payments",
+                    callback_data="owner_payments",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "✍️ Signature",
+                    callback_data="owner_signature",
                 ),
             ],
             [
@@ -331,9 +501,7 @@ async def settings_menu(update, context):
 
     await query.answer()
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = get_owner(OWNER_TELEGRAM_ID)
 
     if not owner:
         await query.message.reply_text(
@@ -341,21 +509,26 @@ async def settings_menu(update, context):
         )
         return
 
-    text = (
-        "⚙️ Studio Settings\n\n"
-        f"Studio: {owner['name']}\n"
-        f"Services: {owner['services_text']}\n"
-        f"Min price: ${owner['min_price']:.0f}\n"
-        f"Max price: ${owner['max_price']:.0f}\n"
-        f"Delivery: {owner['default_days']} days\n\n"
-        "Choose what you want to edit."
-    )
+    min_price = float(owner["min_price"] or 0)
+    max_price = float(owner["max_price"] or 0)
 
     await query.message.edit_text(
-        text,
+        "⚙️ Business Settings\n\n"
+        f"Business: {owner['name']}\n"
+        f"Type: {owner['niche'] or 'Not specified'}\n"
+        f"Services: "
+        f"{owner['services_text'] or 'Not specified'}\n"
+        f"Min price: ${min_price:.2f}\n"
+        f"Max price: ${max_price:.2f}\n"
+        f"Delivery: {owner['default_days']} days\n\n"
+        "Choose what you want to edit.",
         reply_markup=settings_keyboard(),
     )
 
+
+# =========================================================
+# EDIT BUSINESS SETTINGS
+# =========================================================
 
 async def edit_name_start(update, context):
 
@@ -365,10 +538,24 @@ async def edit_name_start(update, context):
     context.user_data["editing_setting"] = "name"
 
     await query.message.reply_text(
-        "Enter the new studio name."
+        "Enter the new business name."
     )
 
     return EDIT_NAME
+
+
+async def edit_niche_start(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["editing_setting"] = "niche"
+
+    await query.message.reply_text(
+        "Enter the new business type."
+    )
+
+    return EDIT_NICHE
 
 
 async def edit_services_start(update, context):
@@ -379,7 +566,7 @@ async def edit_services_start(update, context):
     context.user_data["editing_setting"] = "services"
 
     await query.message.reply_text(
-        "Enter the services you want to offer."
+        "Enter the services/products you offer."
     )
 
     return EDIT_SERVICES
@@ -421,7 +608,7 @@ async def edit_days_start(update, context):
     context.user_data["editing_setting"] = "days"
 
     await query.message.reply_text(
-        "Enter the new default delivery time in days."
+        "Enter the new standard delivery time in days."
     )
 
     return EDIT_DAYS
@@ -431,13 +618,11 @@ async def save_setting_value(update, context):
 
     value = update.message.text.strip()
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = get_owner(OWNER_TELEGRAM_ID)
 
     if not owner:
         await update.message.reply_text(
-            "Studio setup was not found. Run /setup."
+            "Business setup was not found. Run /setup."
         )
         return ConversationHandler.END
 
@@ -447,21 +632,32 @@ async def save_setting_value(update, context):
 
     data = {
         "name": owner["name"],
+        "niche": owner["niche"],
         "services_text": owner["services_text"],
-        "min_price": owner["min_price"],
-        "max_price": owner["max_price"],
-        "default_days": owner["default_days"],
+        "min_price": float(owner["min_price"] or 0),
+        "max_price": float(owner["max_price"] or 0),
+        "default_days": int(owner["default_days"] or 7),
     }
 
     if setting == "name":
 
         if not value:
             await update.message.reply_text(
-                "Studio name cannot be empty."
+                "Business name cannot be empty."
             )
             return EDIT_NAME
 
         data["name"] = value
+
+    elif setting == "niche":
+
+        if not value:
+            await update.message.reply_text(
+                "Business type cannot be empty."
+            )
+            return EDIT_NICHE
+
+        data["niche"] = value
 
     elif setting == "services":
 
@@ -482,19 +678,15 @@ async def save_setting_value(update, context):
                 raise ValueError
 
         except ValueError:
-
             await update.message.reply_text(
                 "Enter a valid price."
             )
-
             return EDIT_MIN_PRICE
 
         if number > data["max_price"]:
-
             await update.message.reply_text(
                 "Minimum price cannot exceed maximum price."
             )
-
             return EDIT_MIN_PRICE
 
         data["min_price"] = number
@@ -508,19 +700,15 @@ async def save_setting_value(update, context):
                 raise ValueError
 
         except ValueError:
-
             await update.message.reply_text(
                 "Enter a valid price."
             )
-
             return EDIT_MAX_PRICE
 
         if number < data["min_price"]:
-
             await update.message.reply_text(
                 "Maximum price cannot be below minimum price."
             )
-
             return EDIT_MAX_PRICE
 
         data["max_price"] = number
@@ -534,26 +722,82 @@ async def save_setting_value(update, context):
                 raise ValueError
 
         except ValueError:
-
             await update.message.reply_text(
                 "Enter a whole number of days."
             )
-
             return EDIT_DAYS
 
         data["default_days"] = number
 
+    else:
+
+        await update.message.reply_text(
+            "No setting is currently being edited."
+        )
+
+        return ConversationHandler.END
+
+    rules = get_business_rules(
+        OWNER_TELEGRAM_ID
+    )
+
+    if not isinstance(rules, dict):
+        rules = {}
+
+    pricing = rules.get(
+        "pricing",
+        {},
+    )
+
+    if not isinstance(pricing, dict):
+        pricing = {}
+
+    pricing["minimum"] = data["min_price"]
+    pricing["maximum"] = data["max_price"]
+
+    pricing.setdefault(
+        "enabled",
+        True,
+    )
+
+    pricing.setdefault(
+        "model",
+        "per_unit",
+    )
+
+    pricing.setdefault(
+        "currency",
+        "USD",
+    )
+
+    pricing["unit"] = {
+        "name": pricing.get(
+            "unit",
+            {}
+        ).get(
+            "name",
+            "unit",
+        ),
+        "price": data["min_price"],
+    }
+
+    rules["pricing"] = pricing
+
     save_owner(
         telegram_id=OWNER_TELEGRAM_ID,
         name=data["name"],
-        niche=owner["niche"],
+        niche=data["niche"],
         services_text=data["services_text"],
         min_price=data["min_price"],
         max_price=data["max_price"],
         default_days=data["default_days"],
-        tone=owner["tone"],
-        usdc_address=owner["usdc_address"],
+        tone=owner["tone"] or "professional",
+        usdc_address=owner["usdc_address"] or "",
         setup_complete=1,
+        business_rules=rules,
+        signature_name=owner["signature_name"] or "",
+        signature_title=owner["signature_title"] or "",
+        signature_image=owner["signature_image"] or "",
     )
 
     context.user_data.pop(
@@ -562,14 +806,423 @@ async def save_setting_value(update, context):
     )
 
     await update.message.reply_text(
-        "✅ Setting updated."
+        "✅ Setting updated.\n\n"
+        "💰 Pricing configuration synchronized."
     )
 
     return ConversationHandler.END
 
 
 # =========================================================
-# JOBS
+# PAYMENTS
+# =========================================================
+
+def payments_keyboard():
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "💳 Change Base USDC Wallet",
+                    callback_data="edit_wallet",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Business Settings",
+                    callback_data="owner_settings",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🏠 Owner Menu",
+                    callback_data="owner_home",
+                )
+            ],
+        ]
+    )
+
+
+async def payments_menu(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if not owner:
+        await query.message.reply_text(
+            "Run /setup first."
+        )
+        return
+
+    wallet = owner["usdc_address"] or ""
+
+    if wallet:
+        wallet_display = wallet
+    else:
+        wallet_display = "Not configured"
+
+    await query.message.edit_text(
+        "💳 Payment Settings\n\n"
+        "Network: Base\n"
+        "Token: USDC\n\n"
+        f"Wallet address:\n"
+        f"{wallet_display}\n\n"
+        "Customers will be instructed to send "
+        "USDC on Base to this wallet.\n\n"
+        "⚠️ Only use a wallet address that you control "
+        "and that supports USDC on Base.",
+        reply_markup=payments_keyboard(),
+    )
+
+
+async def edit_wallet_start(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["editing_setting"] = "wallet"
+
+    await query.message.reply_text(
+        "💳 Enter your Base USDC wallet address.\n\n"
+        "This must be the address that should receive "
+        "customer payments on Base.\n\n"
+        "Example:\n"
+        "0x..."
+    )
+
+    return EDIT_WALLET
+
+
+async def save_wallet(update, context):
+
+    value = update.message.text.strip()
+
+    if not value:
+        await update.message.reply_text(
+            "Wallet address cannot be empty."
+        )
+        return EDIT_WALLET
+
+    if not value.startswith("0x"):
+        await update.message.reply_text(
+            "That does not look like a valid EVM wallet address.\n\n"
+            "Base wallet addresses normally start with 0x.\n"
+            "Enter it again."
+        )
+        return EDIT_WALLET
+
+    if len(value) != 42:
+        await update.message.reply_text(
+            "The wallet address should contain 42 characters "
+            "including 0x.\n\n"
+            "Enter the Base wallet address again."
+        )
+        return EDIT_WALLET
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if not owner:
+        await update.message.reply_text(
+            "Business setup was not found. Run /setup."
+        )
+        return ConversationHandler.END
+
+    save_owner(
+        telegram_id=OWNER_TELEGRAM_ID,
+        name=owner["name"],
+        niche=owner["niche"],
+        services_text=owner["services_text"],
+        min_price=float(owner["min_price"] or 0),
+        max_price=float(owner["max_price"] or 0),
+        default_days=int(owner["default_days"] or 7),
+        tone=owner["tone"] or "professional",
+        usdc_address=value,
+        setup_complete=1,
+        business_rules=get_business_rules(
+            OWNER_TELEGRAM_ID
+        ),
+        signature_name=owner["signature_name"] or "",
+        signature_title=owner["signature_title"] or "",
+        signature_image=owner["signature_image"] or "",
+    )
+
+    context.user_data.pop(
+        "editing_setting",
+        None,
+    )
+
+    await update.message.reply_text(
+        "✅ Base USDC wallet saved.\n\n"
+        f"Wallet:\n{value}\n\n"
+        "Customers can now be directed to this wallet "
+        "for USDC payments on Base."
+    )
+
+    return ConversationHandler.END
+
+
+# =========================================================
+# SIGNATURE
+# =========================================================
+
+def signature_keyboard():
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "👤 Signature Name",
+                    callback_data="edit_signature_name",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💼 Signature Title",
+                    callback_data="edit_signature_title",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🖼 Signature Image",
+                    callback_data="edit_signature_image",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Business Settings",
+                    callback_data="owner_settings",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🏠 Owner Menu",
+                    callback_data="owner_home",
+                )
+            ],
+        ]
+    )
+
+
+async def signature_menu(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    signature = get_owner_signature(
+        OWNER_TELEGRAM_ID
+    )
+
+    name = (
+        signature["signature_name"]
+        or "Not configured"
+    )
+
+    title = (
+        signature["signature_title"]
+        or "Not configured"
+    )
+
+    image = (
+        signature["signature_image"]
+        or "Not configured"
+    )
+
+    await query.message.edit_text(
+        "✍️ Business Signature\n\n"
+        f"Name: {name}\n"
+        f"Title: {title}\n"
+        f"Image: {image}\n\n"
+        "The signature can be attached to customer "
+        "proposals and business communications.",
+        reply_markup=signature_keyboard(),
+    )
+
+
+async def edit_signature_name_start(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["editing_setting"] = (
+        "signature_name"
+    )
+
+    await query.message.reply_text(
+        "Enter the name that should appear "
+        "in your business signature."
+    )
+
+    return EDIT_SIGNATURE_NAME
+
+
+async def edit_signature_title_start(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["editing_setting"] = (
+        "signature_title"
+    )
+
+    await query.message.reply_text(
+        "Enter your signature title.\n\n"
+        "Example:\n"
+        "Founder & CEO"
+    )
+
+    return EDIT_SIGNATURE_TITLE
+
+
+async def edit_signature_image_start(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["editing_setting"] = (
+        "signature_image"
+    )
+
+    await query.message.reply_text(
+        "Send your signature image as a photo.\n\n"
+        "The image will be stored as the Telegram "
+        "file identifier for later use."
+    )
+
+    return EDIT_SIGNATURE_IMAGE
+
+
+async def save_signature_text(update, context):
+
+    value = update.message.text.strip()
+
+    if not value:
+        await update.message.reply_text(
+            "This field cannot be empty."
+        )
+
+        if context.user_data.get(
+            "editing_setting"
+        ) == "signature_name":
+            return EDIT_SIGNATURE_NAME
+
+        return EDIT_SIGNATURE_TITLE
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if not owner:
+        await update.message.reply_text(
+            "Business setup was not found. Run /setup."
+        )
+        return ConversationHandler.END
+
+    setting = context.user_data.get(
+        "editing_setting"
+    )
+
+    signature_name = (
+        owner["signature_name"]
+        or ""
+    )
+
+    signature_title = (
+        owner["signature_title"]
+        or ""
+    )
+
+    if setting == "signature_name":
+        signature_name = value
+
+    elif setting == "signature_title":
+        signature_title = value
+
+    else:
+        await update.message.reply_text(
+            "No signature field is being edited."
+        )
+        return ConversationHandler.END
+
+    save_owner_signature(
+        telegram_id=OWNER_TELEGRAM_ID,
+        signature_name=signature_name,
+        signature_title=signature_title,
+        signature_image=owner["signature_image"] or "",
+    )
+
+    context.user_data.pop(
+        "editing_setting",
+        None,
+    )
+
+    await update.message.reply_text(
+        "✅ Signature updated."
+    )
+
+    return ConversationHandler.END
+
+
+async def save_signature_image(update, context):
+
+    if not update.message.photo:
+
+        await update.message.reply_text(
+            "Please send the signature as a photo."
+        )
+
+        return EDIT_SIGNATURE_IMAGE
+
+    photo = update.message.photo[-1]
+
+    file_id = photo.file_id
+
+    owner = get_owner(
+        OWNER_TELEGRAM_ID
+    )
+
+    if not owner:
+        await update.message.reply_text(
+            "Business setup was not found."
+        )
+        return ConversationHandler.END
+
+    save_owner_signature(
+        telegram_id=OWNER_TELEGRAM_ID,
+        signature_name=owner["signature_name"] or "",
+        signature_title=owner["signature_title"] or "",
+        signature_image=file_id,
+    )
+
+    context.user_data.pop(
+        "editing_setting",
+        None,
+    )
+
+    await update.message.reply_text(
+        "✅ Signature image saved."
+    )
+
+    return ConversationHandler.END
+
+
+# =========================================================
+# ORDERS LIST
 # =========================================================
 
 async def jobs_command(update, context):
@@ -579,47 +1232,336 @@ async def jobs_command(update, context):
 
     jobs = get_all_jobs()
 
+    if update.callback_query:
+
+        await update.callback_query.answer()
+        message = update.callback_query.message
+
+    else:
+
+        message = update.message
+
     if not jobs:
 
-        await update.message.reply_text(
-            "No orders yet."
+        await message.reply_text(
+            "📦 Sovereign Orders\n\n"
+            "No orders yet.",
+            reply_markup=back_owner_keyboard(),
         )
 
         return
 
-    lines = [
-        "📦 Sovereign Jobs",
-        "",
-    ]
+    buttons = []
 
     for job in jobs:
 
-        price = job["quoted_price"]
+        price = float(
+            job["quoted_price"] or 0
+        )
 
         price_text = (
-            f"${price:.0f}"
+            f"${price:.2f}"
             if price
-            else "—"
+            else "Unquoted"
         )
 
         paused = (
-            " • PAUSED"
+            " ⏸"
             if job["paused"]
             else ""
         )
 
-        lines.append(
-            f"#{job['id']} • "
-            f"{job['client_name'] or 'Client'} • "
-            f"{price_text} • "
-            f"{job['status']}"
-            f"{paused}"
+        label = (
+            f"#{job['id']:04d} "
+            f"• {job['client_name'] or 'Client'} "
+            f"• {price_text} "
+            f"• {job['status']}{paused}"
         )
 
-    await update.message.reply_text(
-        "\n".join(lines)
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    label,
+                    callback_data=f"owner_job_{job['id']}",
+                )
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                "🏠 Owner Menu",
+                callback_data="owner_home",
+            )
+        ]
     )
 
+    await message.reply_text(
+        "📦 Sovereign Orders\n\n"
+        "Select an order to view the full details.",
+        reply_markup=InlineKeyboardMarkup(
+            buttons
+        ),
+    )
+
+
+# =========================================================
+# SINGLE ORDER VIEW
+# =========================================================
+
+def job_detail_keyboard(job):
+
+    job_id = job["id"]
+
+    pause_button = (
+        InlineKeyboardButton(
+            "▶️ Resume Order",
+            callback_data=f"resume_job_{job_id}",
+        )
+        if job["paused"]
+        else InlineKeyboardButton(
+            "⏸ Pause Order",
+            callback_data=f"pause_job_{job_id}",
+        )
+    )
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                pause_button,
+            ],
+            [
+                InlineKeyboardButton(
+                    "📦 All Orders",
+                    callback_data="owner_jobs",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "🏠 Owner Menu",
+                    callback_data="owner_home",
+                )
+            ],
+        ]
+    )
+
+
+def format_job_details(job):
+
+    price = float(
+        job["quoted_price"] or 0
+    )
+
+    price_text = (
+        f"${price:.2f} {job['currency'] or 'USD'}"
+        if price
+        else "Not quoted"
+    )
+
+    paused = (
+        "⏸ YES"
+        if job["paused"]
+        else "NO"
+    )
+
+    answers_text = job["answers"] or "{}"
+
+    proposal = (
+        job["proposal_text"]
+        or "No proposal generated."
+    )
+
+    notes = (
+        job["notes"]
+        or "No owner notes."
+    )
+
+    complexity = (
+        job["complexity"]
+        or "Not analyzed"
+    )
+
+    cushion = (
+        job["cushion_applied"]
+        or "None"
+    )
+
+    analysis = (
+        job["internal_analysis"]
+        or "No internal analysis."
+    )
+
+    return (
+        f"📦 ORDER #{job['id']:04d}\n\n"
+
+        f"👤 CLIENT\n"
+        f"Name: {job['client_name'] or 'Unknown'}\n"
+        f"Telegram ID: {job['client_telegram_id']}\n\n"
+
+        f"📊 STATUS\n"
+        f"Status: {job['status']}\n"
+        f"Paused: {paused}\n\n"
+
+        f"💰 PAYMENT / QUOTE\n"
+        f"Price: {price_text}\n"
+        f"Deadline: {job['deadline'] or 'Not set'}\n\n"
+
+        f"🧠 ANALYSIS\n"
+        f"Complexity: {complexity}\n"
+        f"Cushion: {cushion}\n"
+        f"Internal analysis:\n"
+        f"{analysis}\n\n"
+
+        f"📝 CUSTOMER ANSWERS\n"
+        f"{answers_text}\n\n"
+
+        f"📄 PROPOSAL\n"
+        f"{proposal}\n\n"
+
+        f"📌 OWNER NOTES\n"
+        f"{notes}\n\n"
+
+        f"🕐 CREATED\n"
+        f"{job['created_at']}\n\n"
+
+        f"🕐 UPDATED\n"
+        f"{job['updated_at']}"
+    )
+
+
+async def owner_job_detail(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        job_id = int(
+            query.data.replace(
+                "owner_job_",
+                "",
+            )
+        )
+
+    except ValueError:
+
+        await query.message.reply_text(
+            "Invalid order."
+        )
+
+        return
+
+    job = get_job(job_id)
+
+    if not job:
+
+        await query.message.reply_text(
+            f"Order #{job_id} was not found."
+        )
+
+        return
+
+    await query.message.edit_text(
+        format_job_details(job),
+        reply_markup=job_detail_keyboard(job),
+    )
+
+
+# =========================================================
+# PAUSE / RESUME CALLBACKS
+# =========================================================
+
+async def pause_job_callback(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        job_id = int(
+            query.data.replace(
+                "pause_job_",
+                "",
+            )
+        )
+
+    except ValueError:
+        return
+
+    job = get_job(job_id)
+
+    if not job:
+        await query.message.reply_text(
+            "Order not found."
+        )
+        return
+
+    set_job_paused(
+        job_id,
+        True,
+    )
+
+    job = get_job(job_id)
+
+    await query.message.edit_text(
+        format_job_details(job),
+        reply_markup=job_detail_keyboard(job),
+    )
+
+
+async def resume_job_callback(update, context):
+
+    query = update.callback_query
+
+    if not owner_only(update):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        job_id = int(
+            query.data.replace(
+                "resume_job_",
+                "",
+            )
+        )
+
+    except ValueError:
+        return
+
+    job = get_job(job_id)
+
+    if not job:
+        await query.message.reply_text(
+            "Order not found."
+        )
+        return
+
+    set_job_paused(
+        job_id,
+        False,
+    )
+
+    job = get_job(job_id)
+
+    await query.message.edit_text(
+        format_job_details(job),
+        reply_markup=job_detail_keyboard(job),
+    )
+
+
+# =========================================================
+# COMMAND: /job
+# =========================================================
 
 async def job_command(update, context):
 
@@ -657,34 +1599,15 @@ async def job_command(update, context):
 
         return
 
-    price = job["quoted_price"]
-
-    price_text = (
-        f"${price:.0f} USD"
-        if price
-        else "Not quoted"
-    )
-
-    paused = (
-        "Yes"
-        if job["paused"]
-        else "No"
-    )
-
-    text = (
-        f"📦 Order #{job['id']}\n\n"
-        f"Client: {job['client_name']}\n"
-        f"Telegram ID: {job['client_telegram_id']}\n"
-        f"Status: {job['status']}\n"
-        f"Price: {price_text}\n"
-        f"Paused: {paused}\n"
-        f"Created: {job['created_at']}"
-    )
-
     await update.message.reply_text(
-        text
+        format_job_details(job),
+        reply_markup=job_detail_keyboard(job),
     )
 
+
+# =========================================================
+# COMMAND: /pause
+# =========================================================
 
 async def pause_command(update, context):
 
@@ -728,9 +1651,13 @@ async def pause_command(update, context):
     )
 
     await update.message.reply_text(
-        f"⏸ Order #{job_id} is now paused."
+        f"⏸ Order #{job_id:04d} is now paused."
     )
 
+
+# =========================================================
+# COMMAND: /resume
+# =========================================================
 
 async def resume_command(update, context):
 
@@ -774,5 +1701,5 @@ async def resume_command(update, context):
     )
 
     await update.message.reply_text(
-        f"▶️ Order #{job_id} has been resumed."
+        f"▶️ Order #{job_id:04d} has been resumed."
     )

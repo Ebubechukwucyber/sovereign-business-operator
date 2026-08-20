@@ -1,7 +1,11 @@
 from io import BytesIO
 from datetime import datetime
+from html import escape
+import re
 
 from reportlab.lib import colors
+from reportlab.lib.colors import HexColor
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
@@ -15,6 +19,33 @@ from reportlab.platypus import (
 )
 
 
+# =========================================================
+# PREMIUM CORPORATE COLOUR PALETTE
+# =========================================================
+
+NAVY = HexColor("#12233F")
+NAVY_2 = HexColor("#1D3557")
+
+ACCENT = HexColor("#168AAD")
+ACCENT_LIGHT = HexColor("#E8F5F8")
+
+SLATE = HexColor("#53657D")
+TEXT = HexColor("#263238")
+MUTED = HexColor("#718096")
+
+LIGHT_BG = HexColor("#F4F7FA")
+BORDER = HexColor("#D9E2EC")
+
+WHITE = colors.white
+
+SUCCESS = HexColor("#2A9D8F")
+SUCCESS_LIGHT = HexColor("#EAF7F4")
+
+
+# =========================================================
+# MAIN PDF GENERATOR
+# =========================================================
+
 def create_proposal_pdf(
     studio_name: str,
     client_name: str,
@@ -22,299 +53,345 @@ def create_proposal_pdf(
     price: float,
     timeline: str,
     proposal_id: str = "SB-0001",
+    change_request: str = "",
+    project_title: str = "",
+    signature: str = "",
+    owner_signature: str = "",
+    currency: str = "USD",
 ) -> BytesIO:
 
     buffer = BytesIO()
 
+    # =====================================================
+    # SAFE VALUES
+    # =====================================================
+
+    studio_name = str(
+        studio_name or "Business"
+    ).strip()
+
+    client_name = str(
+        client_name or "Client"
+    ).strip()
+
+    proposal_text = str(
+        proposal_text or ""
+    ).strip()
+
+    timeline = str(
+        timeline or "To be confirmed"
+    ).strip()
+
+    proposal_id = str(
+        proposal_id or "SB-0001"
+    ).strip()
+
+    change_request = str(
+        change_request or ""
+    ).strip()
+
+    signature = str(
+        owner_signature or signature or ""
+    ).strip()
+
+    currency = str(
+        currency or "USD"
+    ).strip().upper()
+
+    try:
+
+        numeric_price = float(price)
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        numeric_price = 0.0
+
+    # =====================================================
+    # PROJECT TITLE
+    # =====================================================
+
+    if not project_title:
+
+        project_title = _extract_project_title(
+            proposal_text
+        )
+
+    if not project_title:
+
+        project_title = "Project Proposal"
+
+    # =====================================================
+    # DOCUMENT
+    # =====================================================
+
     document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=20 * mm,
-        leftMargin=20 * mm,
-        topMargin=18 * mm,
-        bottomMargin=18 * mm,
-        title=f"{studio_name} - Business Proposal",
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=19 * mm,
+        bottomMargin=20 * mm,
+        title=(
+            f"{studio_name} - "
+            f"Business Proposal"
+        ),
         author=studio_name,
+        subject=(
+            f"Proposal {proposal_id}"
+        ),
     )
 
     styles = getSampleStyleSheet()
 
+    # =====================================================
+    # STYLES
+    # =====================================================
+
     brand_style = ParagraphStyle(
         "Brand",
         parent=styles["Normal"],
-        fontSize=18,
-        leading=22,
         fontName="Helvetica-Bold",
-        spaceAfter=4,
+        fontSize=17,
+        leading=20,
+        textColor=NAVY,
+        spaceAfter=3,
     )
 
-    title_style = ParagraphStyle(
-        "Title",
-        parent=styles["Title"],
-        fontSize=27,
-        leading=33,
-        fontName="Helvetica-Bold",
-        spaceAfter=10,
-    )
-
-    subtitle_style = ParagraphStyle(
-        "Subtitle",
+    brand_subtitle = ParagraphStyle(
+        "BrandSubtitle",
         parent=styles["Normal"],
-        fontSize=12,
-        leading=18,
-        spaceAfter=25,
+        fontName="Helvetica",
+        fontSize=7.5,
+        leading=10,
+        textColor=ACCENT,
+        spaceAfter=0,
+    )
+
+    cover_title = ParagraphStyle(
+        "CoverTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=29,
+        leading=34,
+        textColor=NAVY,
+        alignment=TA_LEFT,
+        spaceAfter=8,
+    )
+
+    cover_subtitle = ParagraphStyle(
+        "CoverSubtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=11,
+        leading=17,
+        textColor=SLATE,
+        spaceAfter=18,
+    )
+
+    eyebrow_style = ParagraphStyle(
+        "Eyebrow",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.5,
+        leading=10,
+        textColor=ACCENT,
+        spaceAfter=5,
     )
 
     heading_style = ParagraphStyle(
         "Heading",
         parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
         fontSize=14,
         leading=18,
-        fontName="Helvetica-Bold",
-        spaceBefore=14,
+        textColor=NAVY,
+        spaceBefore=12,
         spaceAfter=8,
     )
 
     body_style = ParagraphStyle(
         "Body",
         parent=styles["BodyText"],
-        fontSize=10.5,
-        leading=16,
-        spaceAfter=8,
+        fontName="Helvetica",
+        fontSize=9.7,
+        leading=15,
+        textColor=TEXT,
+        spaceAfter=7,
     )
 
     bullet_style = ParagraphStyle(
         "Bullet",
         parent=body_style,
-        leftIndent=10,
-        firstLineIndent=-6,
+        leftIndent=12,
+        firstLineIndent=-7,
         spaceAfter=5,
     )
 
     small_style = ParagraphStyle(
         "Small",
         parent=styles["Normal"],
-        fontSize=8.5,
-        leading=12,
+        fontName="Helvetica",
+        fontSize=7.7,
+        leading=10.5,
+        textColor=MUTED,
     )
 
-    table_style = ParagraphStyle(
-        "TableText",
+    table_label_style = ParagraphStyle(
+        "TableLabel",
         parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.2,
+        leading=9,
+        textColor=MUTED,
+    )
+
+    table_value_style = ParagraphStyle(
+        "TableValue",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
         fontSize=9,
-        leading=13,
+        leading=12,
+        textColor=NAVY,
+    )
+
+    table_body_style = ParagraphStyle(
+        "TableBody",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8.4,
+        leading=12,
+        textColor=TEXT,
+    )
+
+    table_header_style = ParagraphStyle(
+        "TableHeader",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        leading=10,
+        textColor=WHITE,
+    )
+
+    price_label_style = ParagraphStyle(
+        "PriceLabel",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.5,
+        leading=10,
+        textColor=ACCENT,
+        alignment=TA_CENTER,
     )
 
     price_style = ParagraphStyle(
         "Price",
         parent=styles["Normal"],
-        fontSize=24,
-        leading=30,
         fontName="Helvetica-Bold",
-        alignment=1,
+        fontSize=27,
+        leading=32,
+        textColor=NAVY,
+        alignment=TA_CENTER,
+    )
+
+    price_note_style = ParagraphStyle(
+        "PriceNote",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=11,
+        textColor=SLATE,
+        alignment=TA_CENTER,
+    )
+
+    revision_title_style = ParagraphStyle(
+        "RevisionTitle",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7.5,
+        leading=10,
+        textColor=ACCENT,
+    )
+
+    signature_style = ParagraphStyle(
+        "Signature",
+        parent=styles["Normal"],
+        fontName="Helvetica-Oblique",
+        fontSize=12,
+        leading=16,
+        textColor=NAVY,
     )
 
     story = []
 
-    def heading(text):
+    # =====================================================
+    # HELPERS
+    # =====================================================
+
+    def safe(value):
+
+        if value is None:
+            return ""
+
+        return escape(
+            str(value)
+        ).replace(
+            "\n",
+            "<br/>",
+        )
+
+    def add_heading(text):
+
         story.append(
             Paragraph(
-                text,
+                safe(text),
                 heading_style,
             )
         )
 
-    def body(text):
-        story.append(
-            Paragraph(
-                text,
-                body_style,
+    def add_body(text):
+
+        if text:
+
+            story.append(
+                Paragraph(
+                    safe(text),
+                    body_style,
+                )
             )
+
+    def add_bullet(text):
+
+        if not text:
+            return
+
+        clean = str(
+            text
+        ).strip()
+
+        clean = re.sub(
+            r"^[-•*]\s*",
+            "",
+            clean,
         )
 
-    def bullet(text):
-        story.append(
-            Paragraph(
-                f"• {text}",
-                bullet_style,
+        if clean:
+
+            story.append(
+                Paragraph(
+                    (
+                        '<font color="#168AAD">'
+                        "•"
+                        "</font> "
+                        f"{safe(clean)}"
+                    ),
+                    bullet_style,
+                )
             )
-        )
 
     # =====================================================
-    # HEADER
-    # =====================================================
-
-    story.append(
-        Paragraph(
-            studio_name.upper(),
-            brand_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "BUSINESS PROPOSAL",
-            small_style,
-        )
-    )
-
-    story.append(
-        Spacer(1, 20)
-    )
-
-    # =====================================================
-    # COVER
-    # =====================================================
-
-    story.append(
-        Paragraph(
-            "Landing Page<br/>"
-            "Design & Development",
-            title_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "A tailored proposal for your project",
-            subtitle_style,
-        )
-    )
-
-    cover_data = [
-        [
-            Paragraph("<b>Prepared for</b>", table_style),
-            Paragraph(client_name, table_style),
-        ],
-        [
-            Paragraph("<b>Proposal</b>", table_style),
-            Paragraph(proposal_id, table_style),
-        ],
-        [
-            Paragraph("<b>Date</b>", table_style),
-            Paragraph(
-                datetime.now().strftime("%B %d, %Y"),
-                table_style,
-            ),
-        ],
-        [
-            Paragraph("<b>Timeline</b>", table_style),
-            Paragraph(timeline, table_style),
-        ],
-    ]
-
-    cover_table = Table(
-        cover_data,
-        colWidths=[
-            45 * mm,
-            120 * mm,
-        ],
-    )
-
-    cover_table.setStyle(
-        TableStyle(
-            [
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.4,
-                    colors.lightgrey,
-                ),
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (0, -1),
-                    colors.whitesmoke,
-                ),
-                (
-                    "VALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "TOP",
-                ),
-                (
-                    "LEFTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    8,
-                ),
-                (
-                    "RIGHTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    8,
-                ),
-                (
-                    "TOPPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    8,
-                ),
-                (
-                    "BOTTOMPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    8,
-                ),
-            ]
-        )
-    )
-
-    story.append(cover_table)
-
-    story.append(
-        Spacer(1, 25)
-    )
-
-    story.append(
-        Paragraph(
-            "Prepared by",
-            small_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"<b>{studio_name}</b>",
-            body_style,
-        )
-    )
-
-    story.append(PageBreak())
-
-    # =====================================================
-    # EXECUTIVE SUMMARY
-    # =====================================================
-
-    heading("1. Executive Summary")
-
-    body(
-        f"{studio_name} proposes to design and develop a "
-        f"professional landing page tailored to "
-        f"{client_name}'s requirements. The objective is to "
-        f"create a clear, responsive and conversion-focused "
-        f"web experience that communicates the client's "
-        f"offering effectively and gives visitors a clear "
-        f"path to take action."
-    )
-
-    # =====================================================
-    # PROJECT UNDERSTANDING
-    # =====================================================
-
-    heading("2. Project Understanding")
-
-    body(
-        "Based on the information provided during the "
-        "initial consultation, the project will focus on "
-        "creating a landing-page experience aligned with "
-        "the client's business goals, audience and requested "
-        "content structure."
-    )
-
-    # =====================================================
-    # PARSE LLM PROPOSAL
+    # PARSE PROPOSAL
     # =====================================================
 
     parsed_sections = {
@@ -328,13 +405,30 @@ def create_proposal_pdf(
     current_section = None
 
     heading_map = {
+
         "scope": "scope",
+        "scope of work": "scope",
+        "project scope": "scope",
+
         "included": "included",
         "what's included": "included",
+        "whats included": "included",
+        "included services": "included",
+        "included services & deliverables": "included",
+        "deliverables": "included",
+
         "not included": "not_included",
         "what's not included": "not_included",
+        "whats not included": "not_included",
+        "exclusions": "not_included",
+
         "timeline": "timeline",
+        "timeline & milestones": "timeline",
+        "timeline and milestones": "timeline",
+
         "price": "price",
+        "pricing": "price",
+        "investment": "price",
     }
 
     for raw_line in proposal_text.splitlines():
@@ -344,137 +438,723 @@ def create_proposal_pdf(
         if not line:
             continue
 
-        clean = line.replace("**", "").strip()
+        clean = (
+            line
+            .replace("**", "")
+            .replace("__", "")
+            .strip()
+        )
 
-        normalized = clean.lower().rstrip(":")
+        normalized = (
+            clean
+            .lower()
+            .rstrip(":")
+            .strip()
+        )
+
+        if clean.startswith("#"):
+
+            candidate = (
+                clean
+                .lstrip("#")
+                .strip()
+                .lower()
+                .rstrip(":")
+            )
+
+            if candidate in heading_map:
+
+                current_section = (
+                    heading_map[
+                        candidate
+                    ]
+                )
+
+                continue
 
         if normalized in heading_map:
 
-            current_section = heading_map[normalized]
+            current_section = (
+                heading_map[
+                    normalized
+                ]
+            )
 
             continue
 
         if current_section:
 
-            parsed_sections[current_section].append(
-                clean
+            parsed_sections[
+                current_section
+            ].append(clean)
+
+    # =====================================================
+    # HEADER / FOOTER
+    # =====================================================
+
+    def draw_header_footer(
+        canvas,
+        doc,
+    ):
+
+        canvas.saveState()
+
+        width, height = A4
+
+        # Top accent line
+        canvas.setStrokeColor(
+            ACCENT
+        )
+
+        canvas.setLineWidth(
+            2.2
+        )
+
+        canvas.line(
+            doc.leftMargin,
+            height - 10 * mm,
+            width - doc.rightMargin,
+            height - 10 * mm,
+        )
+
+        # Footer separator
+        canvas.setStrokeColor(
+            BORDER
+        )
+
+        canvas.setLineWidth(
+            0.5
+        )
+
+        canvas.line(
+            doc.leftMargin,
+            12 * mm,
+            width - doc.rightMargin,
+            12 * mm,
+        )
+
+        canvas.setFont(
+            "Helvetica",
+            7,
+        )
+
+        canvas.setFillColor(
+            MUTED
+        )
+
+        canvas.drawString(
+            doc.leftMargin,
+            7.5 * mm,
+            (
+                f"{studio_name} • "
+                f"Proposal {proposal_id}"
+            ),
+        )
+
+        canvas.drawRightString(
+            width - doc.rightMargin,
+            7.5 * mm,
+            f"Page {doc.page}",
+        )
+
+        canvas.restoreState()
+
+    # =====================================================
+    # COVER HEADER
+    # =====================================================
+
+    header_table = Table(
+        [
+            [
+                Paragraph(
+                    safe(
+                        studio_name
+                    ).upper(),
+                    brand_style,
+                ),
+
+                Paragraph(
+                    "PROFESSIONAL BUSINESS PROPOSAL",
+                    brand_subtitle,
+                ),
+            ]
+        ],
+        colWidths=[
+            100 * mm,
+            65 * mm,
+        ],
+    )
+
+    header_table.setStyle(
+        TableStyle(
+            [
+
+                (
+                    "VALIGN",
+                    (0, 0),
+                    (-1, -1),
+                    "TOP",
+                ),
+
+                (
+                    "ALIGN",
+                    (1, 0),
+                    (1, 0),
+                    "RIGHT",
+                ),
+
+                (
+                    "LINEBELOW",
+                    (0, 0),
+                    (-1, 0),
+                    1,
+                    BORDER,
+                ),
+
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    12,
+                ),
+
+            ]
+        )
+    )
+
+    story.append(
+        header_table
+    )
+
+    story.append(
+        Spacer(1, 25)
+    )
+
+    # =====================================================
+    # COVER TITLE
+    # =====================================================
+
+    story.append(
+        Paragraph(
+            "PROJECT PROPOSAL",
+            eyebrow_style,
+        )
+    )
+
+    story.append(
+        Paragraph(
+            safe(project_title),
+            cover_title,
+        )
+    )
+
+    story.append(
+        Paragraph(
+            (
+                "A clear proposal outlining the agreed "
+                "scope, timeline and project investment."
+            ),
+            cover_subtitle,
+        )
+    )
+
+    # =====================================================
+    # METADATA
+    # =====================================================
+
+    metadata = [
+
+        [
+            Paragraph(
+                "PREPARED FOR",
+                table_label_style,
+            ),
+
+            Paragraph(
+                "PROPOSAL ID",
+                table_label_style,
+            ),
+
+            Paragraph(
+                "DATE",
+                table_label_style,
+            ),
+        ],
+
+        [
+            Paragraph(
+                safe(client_name),
+                table_value_style,
+            ),
+
+            Paragraph(
+                safe(proposal_id),
+                table_value_style,
+            ),
+
+            Paragraph(
+                datetime.now().strftime(
+                    "%B %d, %Y"
+                ),
+                table_value_style,
+            ),
+        ],
+
+        [
+            Paragraph(
+                "DELIVERY TIMELINE",
+                table_label_style,
+            ),
+
+            Paragraph(
+                "PROJECT INVESTMENT",
+                table_label_style,
+            ),
+
+            Paragraph(
+                "STATUS",
+                table_label_style,
+            ),
+        ],
+
+        [
+            Paragraph(
+                safe(timeline),
+                table_value_style,
+            ),
+
+            Paragraph(
+                (
+                    f"{currency} "
+                    f"{numeric_price:,.2f}"
+                ),
+                table_value_style,
+            ),
+
+            Paragraph(
+                "PROPOSAL",
+                table_value_style,
+            ),
+        ],
+    ]
+
+    metadata_table = Table(
+        metadata,
+        colWidths=[
+            55 * mm,
+            55 * mm,
+            55 * mm,
+        ],
+        rowHeights=[
+            8 * mm,
+            11 * mm,
+            8 * mm,
+            11 * mm,
+        ],
+    )
+
+    metadata_table.setStyle(
+        TableStyle(
+            [
+
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, -1),
+                    LIGHT_BG,
+                ),
+
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.7,
+                    BORDER,
+                ),
+
+                (
+                    "INNERGRID",
+                    (0, 0),
+                    (-1, -1),
+                    0.45,
+                    BORDER,
+                ),
+
+                (
+                    "VALIGN",
+                    (0, 0),
+                    (-1, -1),
+                    "MIDDLE",
+                ),
+
+                (
+                    "LEFTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    9,
+                ),
+
+                (
+                    "RIGHTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    9,
+                ),
+
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    5,
+                ),
+
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    5,
+                ),
+
+            ]
+        )
+    )
+
+    story.append(
+        metadata_table
+    )
+
+    # =====================================================
+    # REVISION NOTICE
+    # =====================================================
+
+    if change_request:
+
+        story.append(
+            Spacer(1, 17)
+        )
+
+        revision_table = Table(
+            [
+
+                [
+                    Paragraph(
+                        "CLIENT REQUESTED CHANGES",
+                        revision_title_style,
+                    )
+                ],
+
+                [
+                    Paragraph(
+                        safe(change_request),
+                        body_style,
+                    )
+                ],
+
+            ],
+            colWidths=[
+                165 * mm
+            ],
+        )
+
+        revision_table.setStyle(
+            TableStyle(
+                [
+
+                    (
+                        "BACKGROUND",
+                        (0, 0),
+                        (-1, -1),
+                        ACCENT_LIGHT,
+                    ),
+
+                    (
+                        "BOX",
+                        (0, 0),
+                        (-1, -1),
+                        0.8,
+                        ACCENT,
+                    ),
+
+                    (
+                        "LINEBEFORE",
+                        (0, 0),
+                        (0, -1),
+                        4,
+                        ACCENT,
+                    ),
+
+                    (
+                        "LEFTPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        10,
+                    ),
+
+                    (
+                        "RIGHTPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        10,
+                    ),
+
+                    (
+                        "TOPPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        8,
+                    ),
+
+                    (
+                        "BOTTOMPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        8,
+                    ),
+
+                ]
             )
+        )
+
+        story.append(
+            revision_table
+        )
 
     # =====================================================
-    # PROPOSED SOLUTION
+    # PREPARED BY
     # =====================================================
 
-    heading("3. Proposed Solution")
+    story.append(
+        Spacer(1, 24)
+    )
 
-    scope = parsed_sections["scope"]
+    prepared_card = Table(
+        [
+
+            [
+                Paragraph(
+                    "PREPARED BY",
+                    table_label_style,
+                )
+            ],
+
+            [
+                Paragraph(
+                    (
+                        f"<b>"
+                        f"{safe(studio_name)}"
+                        f"</b>"
+                    ),
+                    table_value_style,
+                )
+            ],
+
+        ],
+        colWidths=[
+            70 * mm
+        ],
+    )
+
+    prepared_card.setStyle(
+        TableStyle(
+            [
+
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, -1),
+                    LIGHT_BG,
+                ),
+
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.7,
+                    BORDER,
+                ),
+
+                (
+                    "LEFTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    10,
+                ),
+
+                (
+                    "RIGHTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    10,
+                ),
+
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    7,
+                ),
+
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    7,
+                ),
+
+            ]
+        )
+    )
+
+    story.append(
+        prepared_card
+    )
+
+    story.append(
+        PageBreak()
+    )
+
+    # =====================================================
+    # 1. EXECUTIVE SUMMARY
+    # =====================================================
+
+    add_heading(
+        "1. Executive Summary"
+    )
+
+    summary = _first_content(
+        parsed_sections[
+            "scope"
+        ]
+    )
+
+    if not summary:
+
+        summary = (
+            "This proposal outlines the agreed project "
+            "scope, deliverables, timeline and investment "
+            "for the client."
+        )
+
+    add_body(
+        summary
+    )
+
+    # =====================================================
+    # 2. PROJECT SCOPE
+    # =====================================================
+
+    add_heading(
+        "2. Project Scope"
+    )
+
+    scope = parsed_sections[
+        "scope"
+    ]
 
     if scope:
 
         for item in scope:
 
-            body(item)
+            add_body(
+                item
+            )
 
     else:
 
-        body(
-            "A professionally structured landing page "
-            "designed around the client's requirements, "
-            "with a clear content hierarchy and responsive "
-            "presentation across modern devices."
+        add_body(
+            "The project will be delivered according "
+            "to the requirements discussed and "
+            "approved by the client."
         )
 
     # =====================================================
-    # SCOPE OF WORK
+    # 3. INCLUDED SERVICES
     # =====================================================
 
-    heading("4. Scope of Work")
+    add_heading(
+        "3. Included Services & Deliverables"
+    )
 
-    included = parsed_sections["included"]
+    included = parsed_sections[
+        "included"
+    ]
 
     if included:
 
         for item in included:
 
-            item = item.lstrip("-• ").strip()
-
-            if item:
-                bullet(item)
+            add_bullet(
+                item
+            )
 
     else:
 
-        bullet("Landing page structure and layout")
-        bullet("Responsive desktop and mobile presentation")
-        bullet("Content and section structure")
-        bullet("Two reasonable revision rounds")
+        add_bullet(
+            "Custom work tailored to the client's requirements."
+        )
+
+        add_bullet(
+            "Professional execution of the agreed project scope."
+        )
+
+        add_bullet(
+            "Reasonable revisions based on the approved scope."
+        )
 
     # =====================================================
-    # DELIVERABLES
+    # 4. TIMELINE
     # =====================================================
 
-    heading("5. Deliverables")
+    add_heading(
+        "4. Timeline"
+    )
 
-    deliverables = [
-        "Completed landing-page design and agreed structure",
-        "Responsive presentation for desktop and mobile devices",
-        "Final agreed content and section arrangement",
-        "Two rounds of reasonable revisions",
-    ]
-
-    for item in deliverables:
-        bullet(item)
-
-    # =====================================================
-    # TIMELINE
-    # =====================================================
-
-    heading("6. Timeline & Milestones")
-
-    timeline_days = "7"
-
-    timeline_parts = timeline.split()
-
-    if timeline_parts:
-        timeline_days = timeline_parts[0]
+    add_body(
+        (
+            f"Delivery within "
+            f"{safe(timeline)} "
+            "from project kickoff."
+        )
+    )
 
     timeline_data = [
+
         [
-            Paragraph("<b>Phase</b>", table_style),
-            Paragraph("<b>Activity</b>", table_style),
-            Paragraph("<b>Timing</b>", table_style),
-        ],
-        [
-            Paragraph("01", table_style),
             Paragraph(
-                "Project brief & structure",
-                table_style,
+                "ITEM",
+                table_header_style,
             ),
-            Paragraph("Day 1", table_style),
-        ],
-        [
-            Paragraph("02", table_style),
+
             Paragraph(
-                "Initial design / draft",
-                table_style,
+                "DETAIL",
+                table_header_style,
             ),
-            Paragraph("Days 2–4", table_style),
         ],
+
         [
-            Paragraph("03", table_style),
             Paragraph(
-                "Review & revisions",
-                table_style,
+                "Project kickoff",
+                table_body_style,
             ),
-            Paragraph("Days 5–6", table_style),
+
+            Paragraph(
+                (
+                    "Following confirmation and "
+                    "required payment verification."
+                ),
+                table_body_style,
+            ),
         ],
+
         [
-            Paragraph("04", table_style),
             Paragraph(
-                "Final delivery",
-                table_style,
+                "Delivery",
+                table_body_style,
             ),
+
             Paragraph(
-                f"Day {timeline_days}",
-                table_style,
+                safe(timeline),
+                table_body_style,
             ),
         ],
     ]
@@ -482,221 +1162,650 @@ def create_proposal_pdf(
     timeline_table = Table(
         timeline_data,
         colWidths=[
-            20 * mm,
-            105 * mm,
-            40 * mm,
+            48 * mm,
+            117 * mm,
         ],
     )
 
     timeline_table.setStyle(
         TableStyle(
             [
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.4,
-                    colors.lightgrey,
-                ),
+
                 (
                     "BACKGROUND",
                     (0, 0),
                     (-1, 0),
-                    colors.whitesmoke,
+                    NAVY,
                 ),
+
+                (
+                    "ROWBACKGROUNDS",
+                    (0, 1),
+                    (-1, -1),
+                    [
+                        WHITE,
+                        LIGHT_BG,
+                    ],
+                ),
+
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.6,
+                    BORDER,
+                ),
+
+                (
+                    "INNERGRID",
+                    (0, 0),
+                    (-1, -1),
+                    0.4,
+                    BORDER,
+                ),
+
                 (
                     "VALIGN",
                     (0, 0),
                     (-1, -1),
                     "TOP",
                 ),
+
                 (
                     "LEFTPADDING",
                     (0, 0),
                     (-1, -1),
-                    7,
+                    8,
                 ),
+
                 (
                     "RIGHTPADDING",
                     (0, 0),
                     (-1, -1),
-                    7,
+                    8,
                 ),
+
                 (
                     "TOPPADDING",
                     (0, 0),
                     (-1, -1),
                     7,
                 ),
+
                 (
                     "BOTTOMPADDING",
                     (0, 0),
                     (-1, -1),
                     7,
                 ),
+
             ]
         )
     )
 
-    story.append(timeline_table)
+    story.append(
+        timeline_table
+    )
 
     # =====================================================
-    # INVESTMENT
+    # 5. INVESTMENT
     # =====================================================
 
-    heading("7. Investment")
+    add_heading(
+        "5. Investment"
+    )
 
     price_table = Table(
         [
+
             [
                 Paragraph(
-                    "PROJECT INVESTMENT",
-                    table_style,
+                    "TOTAL PROJECT INVESTMENT",
+                    price_label_style,
                 )
             ],
+
             [
                 Paragraph(
-                    f"${price:.0f} USD",
+                    (
+                        f"{currency} "
+                        f"{numeric_price:,.2f}"
+                    ),
                     price_style,
                 )
             ],
+
             [
                 Paragraph(
-                    "Fixed project fee based on the agreed scope.",
-                    table_style,
+                    (
+                        "Fixed project fee based "
+                        "on the approved scope."
+                    ),
+                    price_note_style,
                 )
             ],
+
         ],
         colWidths=[
-            165 * mm,
+            165 * mm
         ],
     )
 
     price_table.setStyle(
         TableStyle(
             [
+
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, -1),
+                    ACCENT_LIGHT,
+                ),
+
                 (
                     "BOX",
                     (0, 0),
                     (-1, -1),
-                    0.8,
-                    colors.grey,
+                    1,
+                    ACCENT,
                 ),
+
                 (
-                    "LINEBELOW",
+                    "LINEABOVE",
                     (0, 0),
                     (-1, 0),
-                    0.4,
-                    colors.lightgrey,
+                    5,
+                    ACCENT,
                 ),
+
                 (
                     "ALIGN",
                     (0, 0),
                     (-1, -1),
                     "CENTER",
                 ),
+
                 (
                     "VALIGN",
                     (0, 0),
                     (-1, -1),
                     "MIDDLE",
                 ),
+
                 (
                     "TOPPADDING",
                     (0, 0),
                     (-1, -1),
-                    10,
+                    9,
                 ),
+
                 (
                     "BOTTOMPADDING",
                     (0, 0),
                     (-1, -1),
-                    10,
+                    9,
                 ),
+
             ]
         )
     )
 
-    story.append(price_table)
+    story.append(
+        price_table
+    )
 
     # =====================================================
-    # EXCLUSIONS
+    # 6. EXCLUSIONS
     # =====================================================
 
-    heading("8. Exclusions")
+    add_heading(
+        "6. Exclusions"
+    )
 
-    exclusions = parsed_sections["not_included"]
+    exclusions = parsed_sections[
+        "not_included"
+    ]
 
     if exclusions:
 
         for item in exclusions:
 
-            item = item.lstrip("-• ").strip()
-
-            if item:
-                bullet(item)
+            add_bullet(
+                item
+            )
 
     else:
 
-        bullet("Domain registration and hosting fees")
-        bullet("Logo or full brand identity development")
-        bullet("Paid advertising or third-party software fees")
+        add_bullet(
+            "Work outside the agreed project scope."
+        )
+
+        add_bullet(
+            "Ongoing maintenance unless specifically agreed."
+        )
+
+        add_bullet(
+            "Third-party costs unless specifically agreed."
+        )
 
     # =====================================================
-    # CLIENT RESPONSIBILITIES
+    # 7. CLIENT RESPONSIBILITIES
     # =====================================================
 
-    heading("9. Client Responsibilities")
+    add_heading(
+        "7. Client Responsibilities"
+    )
 
     responsibilities = [
-        "Provide accurate business and project information",
-        "Provide existing brand assets and content where applicable",
-        "Review submitted work within a reasonable timeframe",
-        "Provide consolidated feedback for revisions",
+
+        "Provide accurate project information and required materials.",
+
+        "Provide timely feedback and approvals.",
+
+        "Communicate material changes to the agreed scope.",
     ]
 
     for item in responsibilities:
-        bullet(item)
+
+        add_bullet(
+            item
+        )
 
     # =====================================================
-    # PAYMENT TERMS
+    # 8. PAYMENT TERMS
     # =====================================================
 
-    heading("10. Payment Terms")
-
-    body(
-        f"The total project fee is ${price:.0f} USD. "
-        "Payment instructions will be provided directly "
-        "through the Telegram conversation. Project "
-        "production begins after payment confirmation."
+    add_heading(
+        "8. Payment Terms"
     )
 
-    # =====================================================
-    # NEXT STEPS
-    # =====================================================
-
-    heading("11. Next Steps")
-
-    body(
-        "To proceed with the project, complete the payment "
-        "using the instructions provided in Telegram and "
-        "reply PAID in the conversation. Once payment is "
-        "confirmed, the project will move into the production queue."
-    )
-
-    story.append(
-        Spacer(1, 20)
-    )
-
-    story.append(
-        Paragraph(
-            f"{studio_name} • Proposal {proposal_id}",
-            small_style,
+    add_body(
+        (
+            f"The total project fee is "
+            f"{currency} "
+            f"{numeric_price:,.2f}. "
+            "Payment instructions will be provided "
+            "through the business's approved payment "
+            "process. Work begins after payment has "
+            "been verified by the business."
         )
     )
 
-    document.build(story)
+    # =====================================================
+    # 9. NEXT STEPS
+    # =====================================================
+
+    add_heading(
+        "9. Next Steps"
+    )
+
+    add_body(
+        (
+            "Review this proposal and confirm that "
+            "the scope, timeline and investment "
+            "accurately reflect your requirements. "
+            "Once the proposal is accepted and payment "
+            "is verified, the project can proceed "
+            "according to the stated timeline."
+        )
+    )
+
+    # =====================================================
+    # ACCEPTANCE
+    # =====================================================
+
+    acceptance_table = Table(
+        [
+
+            [
+                Paragraph(
+                    "PROPOSAL ACCEPTANCE",
+                    revision_title_style,
+                )
+            ],
+
+            [
+                Paragraph(
+                    (
+                        "By proceeding with payment, the "
+                        "client confirms acceptance of the "
+                        "approved scope, timeline and "
+                        "project investment outlined in "
+                        "this proposal."
+                    ),
+                    body_style,
+                )
+            ],
+
+        ],
+        colWidths=[
+            165 * mm
+        ],
+    )
+
+    acceptance_table.setStyle(
+        TableStyle(
+            [
+
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, -1),
+                    SUCCESS_LIGHT,
+                ),
+
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.8,
+                    SUCCESS,
+                ),
+
+                (
+                    "LINEBEFORE",
+                    (0, 0),
+                    (0, -1),
+                    4,
+                    SUCCESS,
+                ),
+
+                (
+                    "LEFTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    10,
+                ),
+
+                (
+                    "RIGHTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    10,
+                ),
+
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    8,
+                ),
+
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    8,
+                ),
+
+            ]
+        )
+    )
+
+    story.append(
+        Spacer(1, 10)
+    )
+
+    story.append(
+        acceptance_table
+    )
+
+    # =====================================================
+    # SIGNATURES
+    # =====================================================
+
+    story.append(
+        Spacer(1, 22)
+    )
+
+    owner_signature_display = (
+        signature
+        if signature
+        else studio_name
+    )
+
+    signature_data = [
+
+        [
+            Paragraph(
+                "PREPARED BY",
+                table_label_style,
+            ),
+
+            Paragraph(
+                "CLIENT",
+                table_label_style,
+            ),
+        ],
+
+        [
+            Paragraph(
+                safe(
+                    owner_signature_display
+                ),
+                signature_style,
+            ),
+
+            Paragraph(
+                "",
+                signature_style,
+            ),
+        ],
+
+        [
+            Paragraph(
+                "____________________________",
+                small_style,
+            ),
+
+            Paragraph(
+                "____________________________",
+                small_style,
+            ),
+        ],
+
+        [
+            Paragraph(
+                safe(
+                    studio_name
+                ),
+                table_body_style,
+            ),
+
+            Paragraph(
+                safe(
+                    client_name
+                ),
+                table_body_style,
+            ),
+        ],
+
+        [
+            Paragraph(
+                "Authorized representative",
+                small_style,
+            ),
+
+            Paragraph(
+                "Client approval",
+                small_style,
+            ),
+        ],
+    ]
+
+    signature_table = Table(
+        signature_data,
+        colWidths=[
+            82 * mm,
+            82 * mm,
+        ],
+    )
+
+    signature_table.setStyle(
+        TableStyle(
+            [
+
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, 0),
+                    LIGHT_BG,
+                ),
+
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.6,
+                    BORDER,
+                ),
+
+                (
+                    "INNERGRID",
+                    (0, 0),
+                    (-1, -1),
+                    0.4,
+                    BORDER,
+                ),
+
+                (
+                    "VALIGN",
+                    (0, 0),
+                    (-1, -1),
+                    "TOP",
+                ),
+
+                (
+                    "LEFTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    9,
+                ),
+
+                (
+                    "RIGHTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    9,
+                ),
+
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    6,
+                ),
+
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    6,
+                ),
+
+            ]
+        )
+    )
+
+    story.append(
+        signature_table
+    )
+
+    # =====================================================
+    # BUILD PDF
+    # =====================================================
+
+    document.build(
+        story,
+        onFirstPage=draw_header_footer,
+        onLaterPages=draw_header_footer,
+    )
 
     buffer.seek(0)
 
     return buffer
+
+
+# =========================================================
+# HELPER: FIRST CONTENT
+# =========================================================
+
+def _first_content(items):
+
+    if not items:
+        return ""
+
+    for item in items:
+
+        clean = str(
+            item
+        ).strip()
+
+        if clean:
+            return clean
+
+    return ""
+
+
+# =========================================================
+# HELPER: PROJECT TITLE
+# =========================================================
+
+def _extract_project_title(
+    proposal_text,
+):
+
+    if not proposal_text:
+        return ""
+
+    lines = [
+        line.strip()
+        for line in proposal_text.splitlines()
+        if line.strip()
+    ]
+
+    ignored_prefixes = (
+        "scope",
+        "included",
+        "not included",
+        "timeline",
+        "price",
+        "pricing",
+        "investment",
+        "deliverables",
+        "exclusions",
+    )
+
+    for line in lines[:10]:
+
+        clean = (
+            line
+            .replace("**", "")
+            .replace("__", "")
+            .strip()
+        )
+
+        lower = clean.lower()
+
+        if lower.startswith(
+            ignored_prefixes
+        ):
+            continue
+
+        if clean.startswith("#"):
+
+            clean = (
+                clean
+                .lstrip("#")
+                .strip()
+            )
+
+        if (
+            3
+            <= len(clean)
+            <= 90
+        ):
+
+            return clean
+
+    return ""
