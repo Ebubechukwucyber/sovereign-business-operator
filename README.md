@@ -182,7 +182,7 @@ python main.py
 | `DATABASE_PATH` | No | Default `sovereign.db` — use `/data/sovereign.db` with a volume |
 | `BASE_CHAIN_ID` | No | Default `8453` |
 | `BASE_RPC_URL` | No | Default `https://mainnet.base.org` |
-| `BASE_USDC_CONTRACT` | No | Circle USDC on Base |
+| `BASE_USDC_CONTRACT` | No |  on Base |
 | `RESEND_API_KEY` | For email | Resend API key |
 | `EMAIL_FROM` | For email | e.g. `onboarding@resend.dev` |
 | `EMAIL_ENABLED` | No | Default true when key present |
@@ -243,10 +243,6 @@ worker: python main.py
 
 [`web/index.html`](web/index.html) + [`web/logo.png`](web/logo.png)
 
-1. Replace `YOUR_BOT_USERNAME`  
-2. Host with Netlify Drop, GitHub Pages (`/web`), or Vercel  
-3. Use the public URL as the hackathon **Website** field  
-
 ---
 
 ## Security model
@@ -271,15 +267,13 @@ worker: python main.py
 - [x] Owner deliver / export / send file  
 - [x] Owner email alerts (Resend)  
 - [x] Landing page + brand logo  
-- [ ] Multi-owner hosted SaaS  
-- [ ] Richer deliverable workflows  
 
 ---
 
 ## License
 
-MIT (or specify your preferred license).
+MIT .
 
 ---
 
-**Sovereign Business Operator** — one Telegram bot, a full service-business loop, verifiable USDC settlement on Base.
+**Sovereign Business Operator** — an AI agent, a full service-business loop, verifiable USDC settlement on Base.
