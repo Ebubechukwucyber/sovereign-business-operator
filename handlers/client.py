@@ -45,6 +45,8 @@ from ai import (
     generate_proposal,
     template_proposal,
     estimate_price_with_ai,
+    normalize_client_answers,
+    next_intake_question,
 )
 
 from payment_verifier import verify_usdc_payment
@@ -1087,6 +1089,11 @@ async def handle_intake_answer(
         "answers",
         {},
     )
+    # Keep originals for debugging; proposals use refined copy later
+    raw_answers = context.user_data.setdefault(
+        "answers_raw",
+        {},
+    )
 
     if question_index >= len(GENERIC_QUESTIONS):
         return ConversationHandler.END
@@ -1096,21 +1103,40 @@ async def handle_intake_answer(
     ][0]
 
     answers[key] = answer
+    raw_answers[key] = answer
 
     question_index += 1
 
     context.user_data["question_index"] = question_index
 
     if question_index < len(GENERIC_QUESTIONS):
-        await update.message.reply_text(
-            GENERIC_QUESTIONS[
-                question_index
-            ][1]
-        )
+        # Dynamic follow-up from AI; generic text as fallback
+        next_text = ""
+        try:
+            from config import OWNER_TELEGRAM_ID
 
-        return QUESTION_STATES[
-            question_index
-        ]
+            owner = get_owner(
+                context.user_data.get(
+                    "owner_id",
+                    OWNER_TELEGRAM_ID,
+                )
+            )
+            if owner is not None:
+                next_text = await next_intake_question(
+                    owner,
+                    answers,
+                    question_index,
+                    total_questions=len(GENERIC_QUESTIONS),
+                )
+        except Exception as error:
+            print("Dynamic intake question failed:", error)
+
+        if not next_text:
+            next_text = GENERIC_QUESTIONS[question_index][1]
+
+        await update.message.reply_text(next_text)
+
+        return QUESTION_STATES[question_index]
 
     await finish_intake(
         update,
@@ -1163,14 +1189,24 @@ async def finish_intake(
         client_name=client_name,
     )
 
-    save_job_answers(
-        job_id,
-        answers,
-    )
-
     await update.message.reply_text(
         "Thanks — reviewing your requirements and "
         "preparing a tailored quote and proposal."
+    )
+
+    # Clean / structure messy client text for professional docs
+    try:
+        answers = await normalize_client_answers(
+            answers,
+            owner=owner,
+        )
+    except Exception as error:
+        print("Answer normalization failed:", error)
+
+    context.user_data["answers"] = answers
+    save_job_answers(
+        job_id,
+        answers,
     )
 
     # Prefer AI estimate (clamped to owner min/max).
@@ -1534,11 +1570,6 @@ async def handle_edit_request(
             + updated_requirement
         ).strip()
 
-    save_job_answers(
-        job_id,
-        answers,
-    )
-
     # -----------------------------------------------------
     # OWNER
     # -----------------------------------------------------
@@ -1555,6 +1586,20 @@ async def handle_edit_request(
         )
 
         return ConversationHandler.END
+
+    # Professional rewrite of messy / long revision text
+    try:
+        answers = await normalize_client_answers(
+            answers,
+            owner=owner,
+        )
+    except Exception as error:
+        print("Revision normalization failed:", error)
+
+    save_job_answers(
+        job_id,
+        answers,
+    )
 
     # -----------------------------------------------------
     # REPRICE (AI first, rules fallback — same job path)

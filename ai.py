@@ -4,6 +4,8 @@ AI compatibility layer for Sovereign Business Operator.
 Provides:
 
     calculate_price()
+    normalize_client_answers()
+    estimate_price_with_ai()
     generate_proposal()
     template_proposal()
 
@@ -961,6 +963,332 @@ def _owner_price_bounds(owner) -> tuple[float, float]:
 
 def _clamp_price(value: float, minimum: float, maximum: float) -> float:
     return round(min(max(float(value), minimum), maximum), 2)
+
+
+# =========================================================
+# INTAKE: DYNAMIC QUESTIONS + ANSWER REFINEMENT
+# =========================================================
+
+async def next_intake_question(
+    owner,
+    answers: dict,
+    question_index: int,
+    total_questions: int = 5,
+) -> str:
+    """
+    Generate the next intake question from business context
+    and answers so far. Falls back to empty string on failure.
+    """
+    business_name = clean_text(
+        get_value(owner, "name", "the studio")
+    )
+    niche = clean_text(get_value(owner, "niche", ""))
+    services = clean_text(
+        get_value(owner, "services_text", "")
+    )
+    answers = answers or {}
+    answered = "\n".join(
+        f"- {k}: {clean_text(v)}"
+        for k, v in answers.items()
+        if clean_text(v)
+    ) or "- (none yet)"
+
+    remaining = max(total_questions - question_index, 1)
+    slot_hints = {
+        1: "must-haves / important details for a good result",
+        2: "size / quantity / how large the job is",
+        3: "deadline or preferred completion time",
+        4: "anything else before quoting",
+    }
+    hint = slot_hints.get(
+        question_index,
+        "one useful clarifying detail before quoting",
+    )
+
+    system = (
+        "You are an expert intake agent for a real service "
+        "business. Ask ONE sharp follow-up question like a "
+        "skilled human operator would. The question must depend "
+        "on what the client already said and on this business. "
+        "Never use generic form language."
+    )
+    user = f"""
+Business: {business_name}
+Niche: {niche or "not specified"}
+Services: {services or "not specified"}
+
+Client answers so far:
+{answered}
+
+Follow-up slot {question_index} of {total_questions - 1}.
+Guidance for this slot: {hint}.
+
+Examples of GOOD dynamic questions:
+- If they want cake → "How many people should this cake serve?"
+- If bakery / pastry → "Which pastry or flavour do you prefer?"
+- If catering → "How many guests, and is this for lunch or dinner?"
+- If design work → "Do you already have brand colours or examples?"
+- If cleaning → "Is this a one-time clean or a recurring visit?"
+
+Rules:
+- ONE question only
+- Specific to their words + this niche (not a blank template)
+- Under 35 words
+- Friendly, professional
+- Do not assume facts they did not state
+- Return ONLY the question text
+"""
+    text = await llm_chat(system, user, temperature=0.4)
+    text = clean_text(text)
+    if not text or len(text) < 8:
+        return ""
+    # Strip quotes / leading labels
+    text = re.sub(r'^["\']|["\']$', "", text)
+    text = re.sub(
+        r"^(question\s*\d+[:.)]\s*)",
+        "",
+        text,
+        flags=re.I,
+    )
+    return text.strip()
+
+
+async def refine_client_answers(owner, answers: dict) -> dict:
+    """
+    Clean grammar, structure long answers, keep meaning.
+    Used for proposals/invoices — never invent requirements.
+    """
+    answers = dict(answers or {})
+    if not answers:
+        return answers
+
+    business_name = clean_text(
+        get_value(owner, "name", "Studio")
+    )
+    niche = clean_text(get_value(owner, "niche", ""))
+    services = clean_text(
+        get_value(owner, "services_text", "")
+    )
+
+    raw_block = "\n".join(
+        f"{k}: {clean_text(v)}"
+        for k, v in answers.items()
+        if clean_text(v)
+    )
+
+    system = (
+        "You clean client intake notes for a professional "
+        "proposal. Fix spelling and grammar, structure long "
+        "text into clear short sentences or short bullet-style "
+        "phrases, preserve the client's real meaning. "
+        "Never invent quantities, dates, or services they did "
+        "not say. JSON only."
+    )
+    user = f"""
+Business: {business_name}
+Niche: {niche or "not specified"}
+Services offered: {services or "not specified"}
+
+Raw client intake (may have typos or long text):
+{raw_block}
+
+Return ONLY valid JSON with the SAME keys as the raw input.
+Each value must be:
+- correct spelling and grammar
+- clear professional language suitable for a proposal
+- if the original was long, a tight structured summary that
+  keeps every important fact
+- if unclear, keep the idea but make it readable
+- do not add new requirements
+
+Example shape (keys depend on input):
+{{
+  "project": "...",
+  "requirements": "...",
+  "quantity": "...",
+  "deadline": "...",
+  "additional": "..."
+}}
+"""
+    raw = await llm_chat(system, user, temperature=0.2)
+    if not raw:
+        return answers
+
+    cleaned = raw.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    match = re.search(r"\{[\s\S]*\}", cleaned)
+    if not match:
+        return answers
+
+    try:
+        data = json.loads(match.group(0))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return answers
+
+    if not isinstance(data, dict):
+        return answers
+
+    refined = dict(answers)
+    for key, value in answers.items():
+        if key in data and clean_text(data.get(key)):
+            refined[key] = clean_text(data.get(key))
+    return refined
+
+
+# =========================================================
+# CLIENT ANSWER NORMALIZATION
+# =========================================================
+
+async def polish_owner_field(field: str, value: str) -> str:
+    """
+    Light cleanup for owner setup text (name, niche, services).
+    Not as aggressive as client refinement.
+    """
+    value = clean_text(value)
+    if not value:
+        return value
+
+    # Fast path for short clean names
+    if field == "name" and len(value) <= 40 and value[0].isupper():
+        return value
+
+    system = (
+        "Lightly polish a business profile field. Fix obvious "
+        "spelling/grammar only. Keep the owner's wording and "
+        "branding. Do not invent services. Return ONLY the "
+        "cleaned text, nothing else."
+    )
+    user = f"""
+Field: {field}
+Raw value: {value}
+
+Rules:
+- name: proper business name casing if clear
+- niche: short clean business type phrase
+- services: readable list or short paragraph; fix typos only
+- Do not add services they did not write
+- Return only the polished value
+"""
+    out = await llm_chat(system, user, temperature=0.1)
+    out = clean_text(out)
+    if not out or len(out) < 2:
+        return value
+    # Strip accidental quotes
+    out = re.sub(r'^["\']|["\']$', "", out).strip()
+    if len(out) > 800:
+        out = out[:800].rstrip()
+    return out or value
+
+
+async def normalize_client_answers(answers: dict, owner=None) -> dict:
+    """
+    Turn raw intake text into clear professional language for
+    proposals and invoices.
+
+    - Fixes obvious grammar / spelling when meaning is clear
+    - Structures long answers into short professional points
+    - Does NOT invent requirements the client did not state
+    - Falls back to lightly cleaned originals if LLM fails
+    """
+    answers = answers or {}
+    raw = {
+        k: clean_text(v)
+        for k, v in answers.items()
+        if clean_text(v)
+    }
+    if not raw:
+        return dict(answers or {})
+
+    def _local_clean(text: str) -> str:
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return text
+        # Common broken patterns (very light, no LLM)
+        fixes = [
+            (r"\bi\s+cake\s+a\s+need\b", "I need a cake"),
+            (r"\bi\s+need\s+a\s+cake\b", "I need a cake"),
+            (r"\bneed\s+cake\b", "need a cake"),
+            (r"\bim\b", "I'm"),
+            (r"\bi\b", "I"),
+        ]
+        low = text.lower()
+        for pat, rep in fixes:
+            if re.search(pat, low, flags=re.I):
+                text = re.sub(pat, rep, text, flags=re.I)
+                low = text.lower()
+        text = text[0].upper() + text[1:]
+        if text[-1] not in ".!?":
+            text = text + "."
+        return text
+
+    local = {k: _local_clean(v) for k, v in raw.items()}
+
+    niche = ""
+    services = ""
+    if owner is not None:
+        niche = clean_text(get_value(owner, "niche", ""))
+        services = clean_text(get_value(owner, "services_text", ""))
+
+    system = (
+        "You are an editor for client intake used on "
+        "professional proposals and invoices. "
+        "Rewrite messy client text into clear professional "
+        "English. Fix spelling and grammar. If the answer is "
+        "long, structure it as short lines or bullets. "
+        "NEVER invent quantities, dates, flavours, or services "
+        "the client did not state. JSON only."
+    )
+
+    user = f"""
+Business niche: {niche or "general services"}
+Services offered: {services or "not specified"}
+
+Raw client answers (JSON):
+{json.dumps(raw, ensure_ascii=False, indent=2)}
+
+Return ONLY JSON with the SAME keys as the input.
+Transform rules:
+- "i cake a need" → "I need a cake."
+- "chocolat topping small" → "Small order with chocolate topping."
+- Long paragraphs → short structured lines (newlines ok)
+- Keep numbers, dates, and concrete details exactly
+- No marketing fluff, no new requirements
+- Prefer under 400 characters per field
+
+Return JSON only.
+"""
+
+    raw_llm = await llm_chat(system, user, temperature=0.15)
+    if not raw_llm:
+        return {**answers, **local}
+
+    cleaned = raw_llm.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    match = re.search(r"\{[\s\S]*\}", cleaned)
+    if not match:
+        return {**answers, **local}
+
+    try:
+        data = json.loads(match.group(0))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {**answers, **local}
+
+    if not isinstance(data, dict):
+        return {**answers, **local}
+
+    result = dict(answers or {})
+    for key, original in raw.items():
+        value = data.get(key, local.get(key, original))
+        value = clean_text(value)
+        if not value:
+            value = local.get(key, original)
+        if len(value) > 1200:
+            value = value[:1200].rstrip() + "…"
+        result[key] = value
+
+    return result
 
 
 async def estimate_price_with_ai(owner, answers) -> dict | None:

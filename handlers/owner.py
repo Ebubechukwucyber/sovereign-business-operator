@@ -5,6 +5,8 @@ from telegram import (
 )
 from telegram.ext import ConversationHandler
 
+from ai import polish_owner_field
+
 from config import OWNER_TELEGRAM_ID
 
 from db import (
@@ -236,6 +238,10 @@ async def setup_name(update, context):
         )
         return SETUP_NAME
 
+    try:
+        value = await polish_owner_field("name", value)
+    except Exception:
+        pass
     context.user_data["setup"]["name"] = value
 
     await update.message.reply_text(
@@ -265,6 +271,10 @@ async def setup_niche(update, context):
         )
         return SETUP_NICHE
 
+    try:
+        value = await polish_owner_field("niche", value)
+    except Exception:
+        pass
     context.user_data["setup"]["niche"] = value
 
     await update.message.reply_text(
@@ -285,6 +295,10 @@ async def setup_services(update, context):
         )
         return SETUP_SERVICES
 
+    try:
+        value = await polish_owner_field("services", value)
+    except Exception:
+        pass
     context.user_data["setup"]["services"] = value
 
     await update.message.reply_text(
