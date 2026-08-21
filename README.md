@@ -119,7 +119,7 @@ Payment is confirmed **only** after successful on-chain verification.
 | Storage | SQLite (use a Railway volume in production) |
 | Documents | ReportLab |
 | AI | OpenAI-compatible API (Groq: `openai/gpt-oss-20b`) |
-| Chain | Base mainnet · Circle USDC |
+| Chain | Base mainnet · USDC |
 | Email | Resend API (optional SMTP fallback) |
 
 ---
