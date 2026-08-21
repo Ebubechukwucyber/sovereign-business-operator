@@ -12,6 +12,7 @@ from config import OWNER_TELEGRAM_ID
 from db import (
     get_owner,
     save_owner,
+    update_owner_notify_email,
     get_all_jobs,
     get_job,
     set_job_paused,
@@ -35,6 +36,7 @@ SETUP_SERVICES = 102
 SETUP_MIN_PRICE = 103
 SETUP_MAX_PRICE = 104
 SETUP_DAYS = 105
+SETUP_EMAIL = 106
 
 EDIT_NAME = 110
 EDIT_NICHE = 111
@@ -379,6 +381,37 @@ async def setup_days(update, context):
 
         return SETUP_MAX_PRICE
 
+    context.user_data["setup"]["default_days"] = days
+
+    await update.message.reply_text(
+        "Almost done.\n\n"
+        "What email should receive paid-order alerts?\n\n"
+        "Example: you@gmail.com\n"
+        "Send skip if you prefer Telegram-only alerts."
+    )
+
+    return SETUP_EMAIL
+
+
+async def setup_email(update, context):
+
+    raw = (update.message.text or "").strip()
+    low = raw.lower()
+
+    if low in ("skip", "none", "no", "-"):
+        email = ""
+    else:
+        if "@" not in raw or "." not in raw.split("@")[-1]:
+            await update.message.reply_text(
+                "That doesn't look like an email.\n\n"
+                "Send a valid address (you@domain.com) or type skip."
+            )
+            return SETUP_EMAIL
+        email = raw
+
+    data = context.user_data["setup"]
+    days = int(data.get("default_days") or 7)
+
     business_rules = {
         "pricing": {
             "enabled": True,
@@ -403,7 +436,6 @@ async def setup_days(update, context):
                 "nearest": 1,
             },
         },
-
         "buffer_percent": 0,
         "complexity_buffer_percent": 0,
         "complexity_days_buffer": 0,
@@ -430,9 +462,16 @@ async def setup_days(update, context):
         signature_name="",
         signature_title="",
         signature_image="",
+        notify_email=email,
     )
 
     context.user_data.pop("setup", None)
+
+    email_line = (
+        f"📧 Alerts: {email}"
+        if email
+        else "📧 Alerts: Telegram only (no email set)"
+    )
 
     await update.message.reply_text(
         "✅ Business setup complete.\n\n"
@@ -442,7 +481,8 @@ async def setup_days(update, context):
         f"Price range: "
         f"${data['min_price']:.2f} - "
         f"${data['max_price']:.2f}\n"
-        f"Standard fulfillment: {days} days\n\n"
+        f"Standard fulfillment: {days} days\n"
+        f"{email_line}\n\n"
         "💰 Pricing engine: ACTIVE\n"
         "💳 Payment network: Base\n"
         "🪙 Payment token: USDC\n\n"
@@ -1335,6 +1375,14 @@ async def jobs_command(update, context):
     buttons.append(
         [
             InlineKeyboardButton(
+                "⬇️ Export all (PDF)",
+                callback_data="export_all_jobs",
+            )
+        ]
+    )
+    buttons.append(
+        [
+            InlineKeyboardButton(
                 "🏠 Owner Menu",
                 callback_data="owner_home",
             )
@@ -1343,7 +1391,8 @@ async def jobs_command(update, context):
 
     await message.reply_text(
         "📦 Sovereign Orders\n\n"
-        "Select an order to view the full details.",
+        "Select an order to view the full details.\n"
+        "Or export all orders as one PDF.",
         reply_markup=InlineKeyboardMarkup(
             buttons
         ),
@@ -1416,6 +1465,19 @@ def job_detail_keyboard(job):
     rows.append(
         [
             InlineKeyboardButton(
+                "⬇️ Export PDF",
+                callback_data=f"export_job_{job_id}",
+            ),
+            InlineKeyboardButton(
+                "📎 Send file",
+                callback_data=f"sendfile_job_{job_id}",
+            ),
+        ]
+    )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
                 "📦 All Orders",
                 callback_data="owner_jobs",
             ),
@@ -1478,11 +1540,23 @@ def format_job_details(job):
         or "No internal analysis."
     )
 
+    username = ""
+    try:
+        username = (job["client_username"] or "").strip()
+    except Exception:
+        username = ""
+    username_line = (
+        f"Username: @{username}\n"
+        if username
+        else "Username: (not set on Telegram)\n"
+    )
+
     return (
         f"📦 ORDER #{job['id']:04d}\n\n"
 
         f"👤 CLIENT\n"
         f"Name: {job['client_name'] or 'Unknown'}\n"
+        f"{username_line}"
         f"Telegram ID: {job['client_telegram_id']}\n\n"
 
         f"📊 STATUS\n"
@@ -1949,3 +2023,160 @@ async def resume_command(update, context):
     await update.message.reply_text(
         f"▶️ Order #{job_id:04d} has been resumed."
     )
+
+
+# =========================================================
+# EXPORT ORDER PDF(S)
+# =========================================================
+
+async def export_job_callback(update, context):
+    query = update.callback_query
+    if not owner_only(update):
+        await query.answer()
+        return
+    await query.answer()
+    try:
+        job_id = int(query.data.replace("export_job_", ""))
+    except Exception:
+        await query.message.reply_text("Invalid order.")
+        return
+    job = get_job(job_id)
+    if not job:
+        await query.message.reply_text("Order not found.")
+        return
+    owner = get_owner(OWNER_TELEGRAM_ID)
+    business = (owner["name"] if owner else None) or "Studio"
+    try:
+        from pdf_generator import create_order_summary_pdf
+        pdf = create_order_summary_pdf(job, business_name=business)
+        await context.bot.send_document(
+            chat_id=update.effective_user.id,
+            document=pdf,
+            filename=f"Order_SB-{job_id:04d}.pdf",
+            caption=f"⬇️ Order #{job_id:04d} summary",
+        )
+    except Exception as error:
+        await query.message.reply_text(f"Could not export PDF.\n{error}")
+
+
+async def export_all_jobs_callback(update, context):
+    query = update.callback_query
+    if not owner_only(update):
+        await query.answer()
+        return
+    await query.answer()
+    jobs = get_all_jobs()
+    if not jobs:
+        await query.message.reply_text("No orders to export.")
+        return
+    owner = get_owner(OWNER_TELEGRAM_ID)
+    business = (owner["name"] if owner else None) or "Studio"
+    try:
+        from pdf_generator import create_orders_batch_pdf
+        pdf = create_orders_batch_pdf(jobs, business_name=business)
+        await context.bot.send_document(
+            chat_id=update.effective_user.id,
+            document=pdf,
+            filename="Orders_export.pdf",
+            caption=f"⬇️ {len(jobs)} order(s) exported",
+        )
+    except Exception as error:
+        await query.message.reply_text(f"Could not export PDF.\n{error}")
+
+
+# =========================================================
+# SEND FILE TO CLIENT
+# =========================================================
+
+SEND_FILE_WAIT = 910
+
+
+async def sendfile_job_start(update, context):
+    query = update.callback_query
+    if not owner_only(update):
+        await query.answer()
+        return ConversationHandler.END
+    await query.answer()
+    try:
+        job_id = int(query.data.replace("sendfile_job_", ""))
+    except Exception:
+        await query.message.reply_text("Invalid order.")
+        return ConversationHandler.END
+    job = get_job(job_id)
+    if not job:
+        await query.message.reply_text("Order not found.")
+        return ConversationHandler.END
+    context.user_data["sendfile_job_id"] = job_id
+    uname = (job["client_username"] or "").strip()
+    who = f"@{uname}" if uname else (job["client_name"] or "client")
+    await query.message.reply_text(
+        f"Send a file for order #{job_id:04d} ({who}).\n\n"
+        "Upload a document, photo, or video now.\n"
+        "It will be forwarded to the client on Telegram.\n\n"
+        "/cancel to abort."
+    )
+    return SEND_FILE_WAIT
+
+
+async def sendfile_job_receive(update, context):
+    if not owner_only(update):
+        return ConversationHandler.END
+    job_id = context.user_data.get("sendfile_job_id")
+    if not job_id:
+        await update.message.reply_text("No order selected.")
+        return ConversationHandler.END
+    job = get_job(job_id)
+    if not job:
+        await update.message.reply_text("Order not found.")
+        return ConversationHandler.END
+    client_id = job["client_telegram_id"]
+    caption = (
+        f"📎 Delivery from the studio\n"
+        f"Project #{int(job_id):04d}"
+    )
+    try:
+        if update.message.document:
+            await context.bot.send_document(
+                chat_id=client_id,
+                document=update.message.document.file_id,
+                caption=caption,
+            )
+        elif update.message.photo:
+            await context.bot.send_photo(
+                chat_id=client_id,
+                photo=update.message.photo[-1].file_id,
+                caption=caption,
+            )
+        elif update.message.video:
+            await context.bot.send_video(
+                chat_id=client_id,
+                video=update.message.video.file_id,
+                caption=caption,
+            )
+        elif update.message.audio:
+            await context.bot.send_audio(
+                chat_id=client_id,
+                audio=update.message.audio.file_id,
+                caption=caption,
+            )
+        else:
+            await update.message.reply_text(
+                "Please send a document, photo, video, or audio file."
+            )
+            return SEND_FILE_WAIT
+    except Exception as error:
+        await update.message.reply_text(
+            f"Could not deliver file to the client.\n{error}"
+        )
+        return ConversationHandler.END
+    context.user_data.pop("sendfile_job_id", None)
+    await update.message.reply_text(
+        f"✅ File sent to the client for order #{int(job_id):04d}."
+    )
+    return ConversationHandler.END
+
+
+async def sendfile_cancel(update, context):
+    context.user_data.pop("sendfile_job_id", None)
+    await update.message.reply_text("Send-file cancelled.")
+    return ConversationHandler.END

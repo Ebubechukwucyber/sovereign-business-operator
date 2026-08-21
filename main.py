@@ -1,3 +1,4 @@
+
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -28,6 +29,7 @@ from handlers.owner import (
     setup_min_price,
     setup_max_price,
     setup_days,
+    setup_email,
     cancel_setup,
 
     SETUP_NAME,
@@ -36,6 +38,7 @@ from handlers.owner import (
     SETUP_MIN_PRICE,
     SETUP_MAX_PRICE,
     SETUP_DAYS,
+    SETUP_EMAIL,
 
     # =====================================================
     # SETTINGS
@@ -103,6 +106,12 @@ from handlers.owner import (
     close_job_callback,
     resend_receipt_callback,
     resend_invoice_callback,
+    export_job_callback,
+    export_all_jobs_callback,
+    sendfile_job_start,
+    sendfile_job_receive,
+    sendfile_cancel,
+    SEND_FILE_WAIT,
 )
 
 
@@ -330,6 +339,16 @@ def build_application():
                     filters.TEXT
                     & ~filters.COMMAND,
                     setup_days,
+                ),
+
+            ],
+
+            SETUP_EMAIL: [
+
+                MessageHandler(
+                    filters.TEXT
+                    & ~filters.COMMAND,
+                    setup_email,
                 ),
 
             ],
@@ -929,6 +948,45 @@ def build_application():
         )
     )
 
+    application.add_handler(
+        CallbackQueryHandler(
+            export_job_callback,
+            pattern=r"^export_job_\d+$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            export_all_jobs_callback,
+            pattern=r"^export_all_jobs$",
+        )
+    )
+
+    owner_sendfile_conversation = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sendfile_job_start,
+                pattern=r"^sendfile_job_\d+$",
+            ),
+        ],
+        states={
+            SEND_FILE_WAIT: [
+                MessageHandler(
+                    filters.Document.ALL
+                    | filters.PHOTO
+                    | filters.VIDEO
+                    | filters.AUDIO,
+                    sendfile_job_receive,
+                ),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("cancel", sendfile_cancel),
+        ],
+        allow_reentry=True,
+    )
+    application.add_handler(owner_sendfile_conversation)
+
 
     # =====================================================
     # CLIENT HOME
@@ -1083,3 +1141,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -42,7 +42,8 @@ LLM_BASE_URL = os.getenv(
 
 LLM_MODEL = os.getenv(
     "LLM_MODEL",
-    "llama-3.1-8b-instant",
+    # Groq free tier — fast & widely available
+    "openai/gpt-oss-20b",
 ).strip()
 
 
@@ -330,3 +331,26 @@ def validate_payment_config():
 #
 
 PAYMENT_CONFIG_ERRORS = validate_payment_config()
+
+# =========================================================
+# OPTIONAL EMAIL NOTIFY (after payment confirmed)
+# =========================================================
+# Set these on Railway to email the owner a paid-order summary.
+# Uses standard library smtplib — no extra packages.
+
+OWNER_NOTIFY_EMAIL = os.getenv("OWNER_NOTIFY_EMAIL", "").strip()
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "").strip()
+
+# Resend (preferred for hackathon / Railway)
+EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "true").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+EMAIL_FROM = os.getenv(
+    "EMAIL_FROM",
+    SMTP_FROM or "onboarding@resend.dev",
+).strip()

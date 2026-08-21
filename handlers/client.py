@@ -201,6 +201,116 @@ def rule_number(
         return float(default)
 
 
+def _email_owner_paid_order(job_id, client_name, client_username, tx_hash, amount):
+    """
+    Email owner after payment.
+    Prefer Resend API; fall back to SMTP if configured.
+    Recipient: owner.notify_email, else OWNER_NOTIFY_EMAIL env.
+    """
+    try:
+        from config import (
+            EMAIL_ENABLED,
+            RESEND_API_KEY,
+            EMAIL_FROM,
+            OWNER_NOTIFY_EMAIL,
+            OWNER_TELEGRAM_ID,
+            SMTP_HOST,
+            SMTP_PORT,
+            SMTP_USER,
+            SMTP_PASSWORD,
+            SMTP_FROM,
+        )
+        from db import get_owner
+    except Exception as error:
+        print("Email config import failed:", error)
+        return
+
+    if not EMAIL_ENABLED:
+        return
+
+    to_email = ""
+    try:
+        owner = get_owner(OWNER_TELEGRAM_ID)
+        if owner is not None:
+            to_email = (owner["notify_email"] if "notify_email" in owner.keys() else "") or ""
+            to_email = str(to_email).strip()
+    except Exception:
+        to_email = ""
+
+    if not to_email:
+        to_email = OWNER_NOTIFY_EMAIL
+
+    if not to_email or "@" not in to_email:
+        print("Owner email notify skipped: no notify email configured")
+        return
+
+    uname = f"@{client_username}" if client_username else "—"
+    subject = f"[Sovereign] Payment confirmed — Project #{job_id}"
+    text_body = (
+        f"Payment confirmed for Project #{job_id}\n\n"
+        f"Client: {client_name}\n"
+        f"Telegram: {uname}\n"
+        f"Amount: {amount} USDC\n"
+        f"Network: Base\n"
+        f"TX: {tx_hash}\n"
+    )
+    html_body = (
+        f"<h2>Payment confirmed</h2>"
+        f"<p><strong>Project</strong> #{job_id}</p>"
+        f"<p><strong>Client</strong> {client_name}<br/>"
+        f"<strong>Telegram</strong> {uname}</p>"
+        f"<p><strong>Amount</strong> {amount} USDC on Base</p>"
+        f"<p><strong>TX</strong> <code>{tx_hash}</code></p>"
+    )
+    from_addr = EMAIL_FROM or SMTP_FROM or "onboarding@resend.dev"
+
+    # Prefer Resend
+    if RESEND_API_KEY:
+        try:
+            import httpx
+            resp = httpx.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": from_addr,
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_body,
+                    "text": text_body,
+                },
+                timeout=20.0,
+            )
+            if resp.status_code >= 400:
+                print("Resend error:", resp.status_code, resp.text[:300])
+            else:
+                print("Resend ok:", resp.status_code)
+            return
+        except Exception as error:
+            print("Resend notify failed:", error)
+
+    # SMTP fallback
+    if not (SMTP_HOST and from_addr):
+        return
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        msg = MIMEText(html_body, "html")
+        msg["Subject"] = subject
+        msg["From"] = from_addr
+        msg["To"] = to_email
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.starttls()
+            if SMTP_USER and SMTP_PASSWORD:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(from_addr, [to_email], msg.as_string())
+    except Exception as error:
+        print("Owner email notify failed:", error)
+
+
+
 async def notify_owner_payment_confirmed(
     context,
     job_id,
@@ -210,22 +320,35 @@ async def notify_owner_payment_confirmed(
     confirmations,
     receipt_pdf=None,
     invoice_pdf=None,
+    client_username="",
 ):
     from config import OWNER_TELEGRAM_ID
 
     if not OWNER_TELEGRAM_ID:
         return
 
+    uname = f"@{client_username}" if client_username else "—"
     text = (
         f"💰 Payment confirmed\n\n"
         f"Project #{job_id}\n"
         f"Client: {client_name}\n"
+        f"Telegram: {uname}\n"
         f"Amount: {amount} USDC\n"
         f"Network: Base\n"
         f"Confirmations: {confirmations}\n\n"
         f"TX hash:\n{tx_hash}\n\n"
         "The job has been marked PAID."
     )
+    try:
+        _email_owner_paid_order(
+            job_id,
+            client_name,
+            client_username,
+            tx_hash,
+            amount,
+        )
+    except Exception:
+        pass
 
     try:
         await context.bot.send_message(
@@ -1048,9 +1171,43 @@ async def handle_client_name(
 
     context.user_data["client_name"] = name
 
-    await update.message.reply_text(
-        GENERIC_QUESTIONS[0][1]
-    )
+    # First question tailored to the business when LLM is available
+    first_q = GENERIC_QUESTIONS[0][1]
+    try:
+        from config import OWNER_TELEGRAM_ID
+
+        owner = get_owner(
+            context.user_data.get(
+                "owner_id",
+                OWNER_TELEGRAM_ID,
+            )
+        )
+        if owner is not None:
+            niche = clean_text(row_get(owner, "niche", ""))
+            services = clean_text(
+                row_get(owner, "services_text", "")
+            )
+            business = clean_text(
+                row_get(owner, "name", "us")
+            )
+            dynamic = await next_intake_question(
+                owner,
+                {
+                    "client_name": name,
+                    "note": (
+                        f"Opening question for {business}. "
+                        f"Niche: {niche}. Services: {services}."
+                    ),
+                },
+                question_index=0,
+                total_questions=len(GENERIC_QUESTIONS),
+            )
+            if dynamic:
+                first_q = dynamic
+    except Exception as error:
+        print("First intake question failed:", error)
+
+    await update.message.reply_text(first_q)
 
     return QUESTION_1
 
@@ -1187,6 +1344,9 @@ async def finish_intake(
     job_id = create_job(
         client_telegram_id=user_id,
         client_name=client_name,
+        client_username=(
+            update.effective_user.username or ""
+        ),
     )
 
     await update.message.reply_text(
@@ -2692,6 +2852,11 @@ async def handle_paid(
                     f"Error: {error}"
                 )
 
+            client_username = ""
+            try:
+                client_username = row_get(job, "client_username", "") or ""
+            except Exception:
+                pass
             await notify_owner_payment_confirmed(
                 context,
                 job_id,
@@ -2701,6 +2866,7 @@ async def handle_paid(
                 paid_confirmations,
                 receipt_pdf=receipt_pdf,
                 invoice_pdf=invoice_pdf,
+                client_username=client_username,
             )
 
             return

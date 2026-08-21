@@ -55,6 +55,7 @@ def init_db():
             signature_name TEXT DEFAULT '',
             signature_title TEXT DEFAULT '',
             signature_image TEXT DEFAULT '',
+            notify_email TEXT DEFAULT '',
 
             created_at TEXT DEFAULT '',
             updated_at TEXT DEFAULT ''
@@ -97,7 +98,7 @@ def init_db():
             internal_analysis TEXT DEFAULT '',
 
             payment_status TEXT DEFAULT 'UNPAID',
-            payment_network TEXT DEFAULT 'Base Sepolia',
+            payment_network TEXT DEFAULT 'Base',
             payment_token TEXT DEFAULT 'USDC',
             payment_address TEXT DEFAULT '',
             payment_tx_hash TEXT DEFAULT '',
@@ -157,6 +158,13 @@ def init_db():
         "TEXT DEFAULT ''",
     )
 
+    _ensure_column(
+        conn,
+        "owners",
+        "notify_email",
+        "TEXT DEFAULT ''",
+    )
+
     # =====================================================
     # MIGRATIONS — JOBS
     # =====================================================
@@ -194,7 +202,7 @@ def init_db():
         conn,
         "jobs",
         "payment_network",
-        "TEXT DEFAULT 'Base Sepolia'",
+        "TEXT DEFAULT 'Base'",
     )
 
     _ensure_column(
@@ -243,6 +251,13 @@ def init_db():
         conn,
         "jobs",
         "invoice_file",
+        "TEXT DEFAULT ''",
+    )
+
+    _ensure_column(
+        conn,
+        "jobs",
+        "client_username",
         "TEXT DEFAULT ''",
     )
 
@@ -310,6 +325,7 @@ def save_owner(
     signature_name="",
     signature_title="",
     signature_image="",
+    notify_email="",
 ):
     timestamp = now()
 
@@ -360,13 +376,14 @@ def save_owner(
             signature_name,
             signature_title,
             signature_image,
+            notify_email,
             created_at,
             updated_at
         )
 
         VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?
         )
 
         ON CONFLICT(telegram_id)
@@ -384,6 +401,7 @@ def save_owner(
             signature_name = excluded.signature_name,
             signature_title = excluded.signature_title,
             signature_image = excluded.signature_image,
+            notify_email = excluded.notify_email,
             updated_at = excluded.updated_at
         """,
         (
@@ -401,6 +419,7 @@ def save_owner(
             signature_name,
             signature_title,
             signature_image,
+            notify_email or "",
             timestamp,
             timestamp,
         ),
@@ -413,6 +432,21 @@ def save_owner(
 # =========================================================
 # OWNER SIGNATURE
 # =========================================================
+
+def update_owner_notify_email(telegram_id, notify_email=""):
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE owners
+        SET notify_email = ?, updated_at = ?
+        WHERE telegram_id = ?
+        """,
+        (notify_email or "", now(), telegram_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 
 def save_owner_signature(
     telegram_id,
@@ -807,6 +841,7 @@ def get_latest_order(
 def create_job(
     client_telegram_id,
     client_name="",
+    client_username="",
 ):
     timestamp = now()
 
@@ -817,6 +852,7 @@ def create_job(
         INSERT INTO jobs (
             client_telegram_id,
             client_name,
+            client_username,
             status,
             answers,
             quoted_price,
@@ -844,12 +880,13 @@ def create_job(
         VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
         """,
         (
             client_telegram_id,
             client_name,
+            client_username or "",
             "NEW",
             "{}",
             0,
@@ -864,7 +901,7 @@ def create_job(
             "",
             "",
             "UNPAID",
-            "Base Sepolia",
+            "Base",
             "USDC",
             "",
             "",
@@ -1344,7 +1381,7 @@ def update_job_status_and_notes(
 def set_payment_details(
     job_id,
     payment_address="",
-    payment_network="Base Sepolia",
+    payment_network="Base",
     payment_token="USDC",
     payment_amount=0,
 ):
@@ -1426,7 +1463,7 @@ def get_payment_details(job_id):
         ),
         "payment_network": (
             row["payment_network"]
-            or "Base Sepolia"
+            or "Base"
         ),
         "payment_token": (
             row["payment_token"]
@@ -1504,7 +1541,7 @@ def confirm_payment(
     job_id,
     tx_hash,
     amount,
-    payment_network="Base Sepolia",
+    payment_network="Base",
     payment_token="USDC",
 ):
     """
@@ -1657,7 +1694,8 @@ def find_other_job_using_tx_hash(tx_hash, exclude_job_id=None):
     """
     Replay protection.
 
-    A transaction hash may be attached to only one job.
+    Reject a hash only if it was already submitted
+    and confirmed on another job.
     """
 
     tx_hash = str(tx_hash or "").strip().lower()
@@ -1673,6 +1711,10 @@ def find_other_job_using_tx_hash(tx_hash, exclude_job_id=None):
             SELECT id, payment_status, status
             FROM jobs
             WHERE lower(payment_tx_hash) = ?
+              AND (
+                  payment_status = 'CONFIRMED'
+                  OR status = 'PAID'
+              )
             LIMIT 1
             """,
             (tx_hash,),
@@ -1684,6 +1726,10 @@ def find_other_job_using_tx_hash(tx_hash, exclude_job_id=None):
             FROM jobs
             WHERE lower(payment_tx_hash) = ?
               AND id != ?
+              AND (
+                  payment_status = 'CONFIRMED'
+                  OR status = 'PAID'
+              )
             LIMIT 1
             """,
             (tx_hash, exclude_job_id),
