@@ -1820,7 +1820,7 @@ def create_invoice_pdf(
     job_id,
     amount,
     currency: str = "USDC",
-    network: str = "Base Sepolia",
+    network: str = "Base",
     token: str = "USDC",
     tx_hash: str = "",
     block_number: str = "",
@@ -1840,7 +1840,7 @@ def create_invoice_pdf(
     studio_name = str(studio_name or "Sovereign Studio").strip()
     client_name = str(client_name or "Client").strip()
     currency = str(currency or "USDC").strip().upper()
-    network = str(network or "Base Sepolia").strip()
+    network = str(network or "Base").strip()
     token = str(token or "USDC").strip()
     tx_hash = str(tx_hash or "").strip()
     recipient = str(recipient or "").strip()
@@ -2354,5 +2354,263 @@ def create_invoice_pdf(
         onLaterPages=draw_header_footer,
     )
 
+    buffer.seek(0)
+    return buffer
+
+
+# =========================================================
+# OWNER ORDER SUMMARY PDF
+# =========================================================
+
+def create_order_summary_pdf(job, answers=None, business_name="Studio"):
+    """
+    One-page operational summary for the owner to download.
+    """
+    import json
+    from io import BytesIO
+    from datetime import datetime
+    from html import escape
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.enums import TA_LEFT
+
+    NAVY = HexColor("#12233F")
+    ACCENT = HexColor("#168AAD")
+    BORDER = HexColor("#D9E2EC")
+    LIGHT = HexColor("#F4F7FA")
+
+    def safe(value):
+        return escape(str(value or "").strip()) or "—"
+
+    if answers is None:
+        raw = job["answers"] if hasattr(job, "keys") else (job.get("answers") if isinstance(job, dict) else "{}")
+        if isinstance(raw, str):
+            try:
+                answers = json.loads(raw or "{}")
+            except Exception:
+                answers = {}
+        elif isinstance(raw, dict):
+            answers = raw
+        else:
+            answers = {}
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle(
+        "os_title",
+        parent=styles["Heading1"],
+        fontSize=16,
+        textColor=NAVY,
+        spaceAfter=8,
+    )
+    h = ParagraphStyle(
+        "os_h",
+        parent=styles["Heading2"],
+        fontSize=11,
+        textColor=ACCENT,
+        spaceBefore=10,
+        spaceAfter=4,
+    )
+    body = ParagraphStyle(
+        "os_body",
+        parent=styles["Normal"],
+        fontSize=9.5,
+        leading=13,
+        textColor=NAVY,
+    )
+
+    job_id = job["id"] if hasattr(job, "keys") else job.get("id")
+    client_name = job["client_name"] if hasattr(job, "keys") else job.get("client_name")
+    client_username = ""
+    try:
+        client_username = job["client_username"] if hasattr(job, "keys") else job.get("client_username", "")
+    except Exception:
+        client_username = ""
+    client_tid = job["client_telegram_id"] if hasattr(job, "keys") else job.get("client_telegram_id")
+    status = job["status"] if hasattr(job, "keys") else job.get("status")
+    payment_status = job["payment_status"] if hasattr(job, "keys") else job.get("payment_status")
+    price = float((job["quoted_price"] if hasattr(job, "keys") else job.get("quoted_price")) or 0)
+    currency = (job["currency"] if hasattr(job, "keys") else job.get("currency")) or "USD"
+    tx = job["payment_tx_hash"] if hasattr(job, "keys") else job.get("payment_tx_hash")
+    deadline = job["deadline"] if hasattr(job, "keys") else job.get("deadline")
+    created = job["created_at"] if hasattr(job, "keys") else job.get("created_at")
+    username_line = f"@{client_username}" if client_username else "—"
+
+    story = [
+        Paragraph(safe(business_name), title),
+        Paragraph(f"Order summary · #{int(job_id):04d}", body),
+        Spacer(1, 6),
+        Paragraph("Client", h),
+        Paragraph(f"<b>Name:</b> {safe(client_name)}", body),
+        Paragraph(f"<b>Telegram username:</b> {safe(username_line)}", body),
+        Paragraph(f"<b>Telegram ID:</b> {safe(client_tid)}", body),
+        Paragraph("Status", h),
+        Paragraph(f"<b>Job:</b> {safe(status)} · <b>Payment:</b> {safe(payment_status)}", body),
+        Paragraph(f"<b>Quote:</b> ${price:.2f} {safe(currency)}", body),
+        Paragraph(f"<b>Deadline:</b> {safe(deadline)}", body),
+        Paragraph(f"<b>TX:</b> {safe(tx)}", body),
+        Paragraph(f"<b>Created:</b> {safe(created)}", body),
+        Paragraph("Intake answers", h),
+    ]
+    if answers:
+        for key, value in answers.items():
+            story.append(
+                Paragraph(
+                    f"<b>{safe(key)}:</b> {safe(value)}",
+                    body,
+                )
+            )
+    else:
+        story.append(Paragraph("No answers stored.", body))
+
+    proposal = job["proposal_text"] if hasattr(job, "keys") else job.get("proposal_text")
+    if proposal:
+        story.append(Paragraph("Proposal excerpt", h))
+        excerpt = str(proposal)[:1200]
+        story.append(Paragraph(safe(excerpt), body))
+
+    story.append(Spacer(1, 12))
+    story.append(
+        Paragraph(
+            f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
+            body,
+        )
+    )
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
+def create_orders_batch_pdf(jobs, business_name="Studio"):
+    """
+    Multi-order summary PDF for the owner.
+    """
+    import json
+    from io import BytesIO
+    from datetime import datetime
+    from html import escape
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        PageBreak,
+    )
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.enums import TA_LEFT
+
+    NAVY = HexColor("#12233F")
+    BORDER = HexColor("#D9E2EC")
+    LIGHT = HexColor("#F4F7FA")
+
+    def safe(value):
+        return escape(str(value or "").strip()) or "—"
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle(
+        "t", parent=styles["Heading1"], textColor=NAVY, fontSize=16, spaceAfter=8
+    )
+    body = ParagraphStyle(
+        "b", parent=styles["Normal"], fontSize=9, leading=12, textColor=NAVY
+    )
+    h = ParagraphStyle(
+        "h", parent=styles["Heading2"], textColor=NAVY, fontSize=11, spaceBefore=8, spaceAfter=4
+    )
+
+    story = [
+        Paragraph(safe(business_name) + " — Orders export", title),
+        Paragraph(
+            f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC · {len(jobs or [])} order(s)",
+            body,
+        ),
+        Spacer(1, 8),
+    ]
+
+    for i, job in enumerate(jobs or []):
+        if hasattr(job, "keys") and not isinstance(job, dict):
+            job = dict(job)
+        jid = job.get("id", "?")
+        uname = job.get("client_username") or ""
+        uname_disp = f"@{uname}" if uname else "—"
+        price = float(job.get("quoted_price") or 0)
+        story.append(Paragraph(f"Order #{int(jid):04d}", h))
+        data = [
+            ["Client", safe(job.get("client_name"))],
+            ["Telegram", uname_disp],
+            ["Telegram ID", safe(job.get("client_telegram_id"))],
+            ["Status", safe(job.get("status"))],
+            ["Payment", safe(job.get("payment_status"))],
+            ["Price", f"${price:.2f} {job.get('currency') or 'USD'}"],
+            ["TX", safe(job.get("payment_tx_hash"))[:42]],
+            ["Created", safe(job.get("created_at"))],
+        ]
+        table = Table(data, colWidths=[35 * mm, 130 * mm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (0, -1), LIGHT),
+                    ("GRID", (0, 0), (-1, -1), 0.4, BORDER),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ]
+            )
+        )
+        story.append(table)
+        raw = job.get("answers") or "{}"
+        if isinstance(raw, str):
+            try:
+                answers = json.loads(raw or "{}")
+            except Exception:
+                answers = {}
+        else:
+            answers = raw if isinstance(raw, dict) else {}
+        if answers:
+            bits = "; ".join(
+                f"{k}: {str(v)[:80]}" for k, v in list(answers.items())[:6]
+            )
+            story.append(Paragraph(safe(bits), body))
+        story.append(Spacer(1, 10))
+        if i < len(jobs) - 1 and (i + 1) % 4 == 0:
+            story.append(PageBreak())
+
+    doc.build(story)
     buffer.seek(0)
     return buffer
