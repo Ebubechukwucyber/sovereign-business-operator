@@ -204,6 +204,28 @@ def rule_number(
 
 
 
+
+def owner_for_job(job, context=None):
+    """Resolve the business owner for a job (multi-tenant safe)."""
+    from config import OWNER_TELEGRAM_ID
+    biz = 0
+    if job is not None:
+        try:
+            biz = int(job["business_id"] or 0)
+        except Exception:
+            biz = 0
+    if not biz and context is not None:
+        try:
+            biz = int(context.user_data.get("owner_id") or 0)
+        except Exception:
+            biz = 0
+    if not biz:
+        biz = OWNER_TELEGRAM_ID or 0
+    if not biz:
+        return None
+    return get_owner(biz)
+
+
 def payment_network_label(value=None) -> str:
     """Always show Base mainnet to clients — never Sepolia testnet labels."""
     text = str(value or "Base").strip()
@@ -1837,11 +1859,7 @@ async def handle_edit_request(
     # OWNER
     # -----------------------------------------------------
 
-    from config import OWNER_TELEGRAM_ID
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = owner_for_job(job, context)
 
     if owner is None:
         await update.message.reply_text(
@@ -2340,11 +2358,7 @@ async def view_proposal(
     if not isinstance(answers, dict):
         answers = dict(answers or {})
 
-    from config import OWNER_TELEGRAM_ID
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = owner_for_job(job, context)
 
     if owner:
         client_name = row_get(
@@ -2498,11 +2512,7 @@ async def payment_page(
         )
         return
 
-    from config import OWNER_TELEGRAM_ID
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = owner_for_job(job, context)
 
     if not owner:
         await _send_callback_text(
@@ -2855,14 +2865,16 @@ async def handle_paid(
             invoice_pdf = None
 
             try:
-                from config import OWNER_TELEGRAM_ID
-
-                owner = get_owner(OWNER_TELEGRAM_ID)
+                owner = owner_for_job(job, context)
                 studio_name = clean_text(
-                    row_get(owner, "name", "Sovereign Studio")
+                    row_get(owner, "name", "Sovereign Studio") if owner else "Sovereign Studio"
                 ) or "Sovereign Studio"
 
-                signature = get_owner_signature(OWNER_TELEGRAM_ID) or {}
+                try:
+                    _oid = int(row_get(owner, "telegram_id", 0) or 0) if owner else 0
+                except Exception:
+                    _oid = 0
+                signature = get_owner_signature(_oid) or {} if _oid else {}
                 signature_name = clean_text(
                     signature.get("signature_name")
                 ) or studio_name
@@ -3046,10 +3058,8 @@ async def services_page(
     await query.answer()
 
     from config import OWNER_TELEGRAM_ID
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    _oid = context.user_data.get("owner_id") or OWNER_TELEGRAM_ID
+    owner = get_owner(_oid)
 
     if not owner:
         await query.edit_message_text(
@@ -3122,10 +3132,8 @@ async def contact_studio(
     await query.answer()
 
     from config import OWNER_TELEGRAM_ID
-
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    _oid = context.user_data.get("owner_id") or OWNER_TELEGRAM_ID
+    owner = get_owner(_oid)
 
     if not owner:
         await query.edit_message_text(
