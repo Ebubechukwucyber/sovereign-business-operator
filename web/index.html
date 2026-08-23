@@ -3,8 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- YouTube embeds require a Referer. same-origin / no-referrer causes Error 153. -->
-  <meta name="referrer" content="strict-origin-when-cross-origin" />
 
   <meta
     name="description"
@@ -2175,10 +2173,11 @@
         <div class="video-panel">
           <div class="video-frame">
             <iframe
-              src="https://www.youtube-nocookie.com/embed/wvg5o5vqAsQ?rel=0"
+              src="https://www.youtube-nocookie.com/embed/wvg5o5vqAsQ?rel=0&modestbranding=1"
               title="Sovereign Product Demo"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              loading="lazy"
               referrerpolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowfullscreen
             ></iframe>
           </div>
