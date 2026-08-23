@@ -12,8 +12,10 @@ from config import OWNER_TELEGRAM_ID
 from db import (
     get_owner,
     save_owner,
+    ensure_owner_slug,
     update_owner_notify_email,
     get_all_jobs,
+    get_business_jobs,
     get_job,
     set_job_paused,
     set_job_status,
@@ -465,6 +467,15 @@ async def setup_email(update, context):
         notify_email=email,
     )
 
+    invite_slug = ""
+    try:
+        invite_slug = ensure_owner_slug(
+            OWNER_TELEGRAM_ID,
+            data.get("name") or "",
+        )
+    except Exception:
+        invite_slug = ""
+
     context.user_data.pop("setup", None)
 
     email_line = (
@@ -489,7 +500,13 @@ async def setup_email(update, context):
         "Finish setup with the buttons below — "
         "no need to send /start again.\n\n"
         "Recommended next: Payments (USDC wallet), "
-        "then Signature.",
+        "then Signature.\n\n"
+        + (
+            f"Client invite link slug: {invite_slug}\n"
+            f"Clients can open: /start {invite_slug}"
+            if invite_slug
+            else "Client invite slug will be ready after setup."
+        ),
         reply_markup=owner_menu_keyboard(),
     )
 
@@ -1315,7 +1332,7 @@ async def jobs_command(update, context):
     if not owner_only(update):
         return
 
-    jobs = get_all_jobs()
+    jobs = get_business_jobs(OWNER_TELEGRAM_ID)
 
     if update.callback_query:
 
@@ -2065,7 +2082,7 @@ async def export_all_jobs_callback(update, context):
         await query.answer()
         return
     await query.answer()
-    jobs = get_all_jobs()
+    jobs = get_business_jobs(OWNER_TELEGRAM_ID)
     if not jobs:
         await query.message.reply_text("No orders to export.")
         return

@@ -17,6 +17,8 @@ from telegram.ext import (
 from datetime import datetime, timezone
 
 from db import (
+    get_owner_by_slug,
+    ensure_owner_slug,
     get_owner,
     create_job,
     get_job,
@@ -999,7 +1001,33 @@ async def start_client(
 
     from config import OWNER_TELEGRAM_ID
 
-    owner = get_owner(OWNER_TELEGRAM_ID)
+    # Multi-tenant: /start <slug> or /start biz_<slug>
+    owner = None
+    args = []
+    if context.args:
+        args = list(context.args)
+    elif update.message and update.message.text:
+        parts = update.message.text.split(maxsplit=1)
+        if len(parts) > 1:
+            args = parts[1].split()
+
+    if args:
+        raw = (args[0] or "").strip()
+        if raw.lower().startswith("biz_"):
+            raw = raw[4:]
+        owner = get_owner_by_slug(raw)
+        if owner is None and raw.isdigit():
+            owner = get_owner(int(raw))
+
+    if owner is None:
+        owner = get_owner(OWNER_TELEGRAM_ID)
+
+    if owner is not None:
+        context.user_data["owner_id"] = row_get(
+            owner, "telegram_id", OWNER_TELEGRAM_ID
+        )
+    else:
+        context.user_data["owner_id"] = OWNER_TELEGRAM_ID
 
     business_name = "our studio"
     niche = ""
@@ -1347,6 +1375,7 @@ async def finish_intake(
         client_username=(
             update.effective_user.username or ""
         ),
+        business_id=int(owner_id or 0),
     )
 
     await update.message.reply_text(

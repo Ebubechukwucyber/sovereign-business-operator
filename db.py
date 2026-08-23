@@ -56,6 +56,7 @@ def init_db():
             signature_title TEXT DEFAULT '',
             signature_image TEXT DEFAULT '',
             notify_email TEXT DEFAULT '',
+            slug TEXT DEFAULT '',
 
             created_at TEXT DEFAULT '',
             updated_at TEXT DEFAULT ''
@@ -71,6 +72,8 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            business_id INTEGER DEFAULT 0,
 
             client_telegram_id INTEGER NOT NULL,
             client_name TEXT DEFAULT '',
@@ -162,6 +165,13 @@ def init_db():
         conn,
         "owners",
         "notify_email",
+        "TEXT DEFAULT ''",
+    )
+
+    _ensure_column(
+        conn,
+        "owners",
+        "slug",
         "TEXT DEFAULT ''",
     )
 
@@ -257,9 +267,52 @@ def init_db():
     _ensure_column(
         conn,
         "jobs",
+        "business_id",
+        "INTEGER DEFAULT 0",
+    )
+
+    _ensure_column(
+        conn,
+        "jobs",
         "client_username",
         "TEXT DEFAULT ''",
     )
+
+    # Multi-tenant backfill: jobs without business_id → sole/first owner
+    try:
+        owners = conn.execute(
+            "SELECT telegram_id, name, slug FROM owners WHERE setup_complete = 1"
+        ).fetchall()
+        if owners:
+            default_biz = owners[0]["telegram_id"]
+            conn.execute(
+                """
+                UPDATE jobs SET business_id = ?
+                WHERE business_id IS NULL OR business_id = 0
+                """,
+                (default_biz,),
+            )
+            for o in owners:
+                tid = o["telegram_id"]
+                slug = (o["slug"] or "").strip() if "slug" in o.keys() else ""
+                if not slug:
+                    name = o["name"] or f"biz-{tid}"
+                    import re
+                    base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")[:40] or f"biz-{tid}"
+                    slug = base
+                    n = 0
+                    while conn.execute(
+                        "SELECT 1 FROM owners WHERE slug = ? AND telegram_id != ?",
+                        (slug, tid),
+                    ).fetchone():
+                        n += 1
+                        slug = f"{base}-{n}"
+                    conn.execute(
+                        "UPDATE owners SET slug = ? WHERE telegram_id = ?",
+                        (slug, tid),
+                    )
+    except Exception as error:
+        print("multi-tenant backfill:", error)
 
     conn.commit()
     conn.close()
@@ -292,6 +345,90 @@ def _ensure_column(
 # =========================================================
 # OWNER
 # =========================================================
+
+
+def _slugify(text: str) -> str:
+    import re
+    text = (text or "").strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-")
+    return (text or "studio")[:40]
+
+
+def ensure_owner_slug(telegram_id, name="") -> str:
+    """Assign a unique public slug for deep links if missing."""
+    row = get_owner(telegram_id)
+    if not row:
+        return ""
+    try:
+        existing = (row["slug"] or "").strip()
+    except Exception:
+        existing = ""
+    if existing:
+        return existing
+
+    base = _slugify(name or row["name"] or f"biz-{telegram_id}")
+    slug = base
+    conn = get_connection()
+    n = 0
+    while True:
+        found = conn.execute(
+            "SELECT telegram_id FROM owners WHERE slug = ? AND telegram_id != ?",
+            (slug, telegram_id),
+        ).fetchone()
+        if not found:
+            break
+        n += 1
+        slug = f"{base}-{n}"
+    conn.execute(
+        "UPDATE owners SET slug = ?, updated_at = ? WHERE telegram_id = ?",
+        (slug, now(), telegram_id),
+    )
+    conn.commit()
+    conn.close()
+    return slug
+
+
+def get_owner_by_slug(slug: str):
+    slug = (slug or "").strip().lower()
+    if not slug:
+        return None
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM owners WHERE lower(slug) = ? AND setup_complete = 1",
+        (slug,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def list_setup_owners():
+    """All businesses that finished setup (multi-tenant catalog)."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM owners
+        WHERE setup_complete = 1
+        ORDER BY name COLLATE NOCASE
+        """
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_business_jobs(business_id):
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM jobs
+        WHERE business_id = ?
+        ORDER BY id DESC
+        """,
+        (business_id,),
+    ).fetchall()
+    conn.close()
+    return rows
+
 
 def get_owner(telegram_id):
     conn = get_connection()
@@ -842,6 +979,7 @@ def create_job(
     client_telegram_id,
     client_name="",
     client_username="",
+    business_id=0,
 ):
     timestamp = now()
 
@@ -850,6 +988,7 @@ def create_job(
     cursor = conn.execute(
         """
         INSERT INTO jobs (
+            business_id,
             client_telegram_id,
             client_name,
             client_username,
@@ -880,10 +1019,11 @@ def create_job(
         VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
         """,
         (
+            int(business_id or 0),
             client_telegram_id,
             client_name,
             client_username or "",
