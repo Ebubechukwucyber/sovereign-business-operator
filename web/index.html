@@ -1395,6 +1395,220 @@
       }
     }
 
+
+    /* =========================================
+       MULTI-OWNER / DOCUMENTATION
+    ========================================= */
+
+    .how-it-works-section {
+      position: relative;
+      overflow: hidden;
+      background: var(--navy);
+      color: var(--white);
+    }
+
+    .how-it-works-section .section-kicker { color: var(--yellow); }
+    .how-it-works-section .section-heading { color: var(--white); }
+    .how-it-works-section .section-intro { color: rgba(255,255,255,0.62); }
+
+    .workflow-grid {
+      margin-top: 50px;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      border-top: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .workflow-step {
+      position: relative;
+      min-height: 235px;
+      padding: 25px 20px;
+      border-right: 1px solid rgba(255,255,255,0.1);
+    }
+    .workflow-step:last-child { border-right: 0; }
+    .workflow-step::before {
+      content: "";
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      top: -4px;
+      left: 0;
+      border-radius: 50%;
+      background: var(--yellow);
+    }
+    .workflow-step .step-number { color: var(--yellow); }
+    .workflow-step h3 { margin-top: 26px; font-size: 0.98rem; }
+    .workflow-step p { margin-top: 10px; color: rgba(255,255,255,0.6); font-size: 0.79rem; line-height: 1.65; }
+
+    .audience-section { position: relative; }
+    .audience-grid {
+      margin-top: 48px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+    .audience-card {
+      padding: 34px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--white);
+      box-shadow: var(--shadow-sm);
+    }
+    .audience-card-label {
+      color: var(--teal);
+      font-size: 0.68rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .audience-card h3 {
+      margin-top: 14px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(1.7rem, 3vw, 2.6rem);
+      font-weight: 500;
+      letter-spacing: -0.05em;
+      line-height: 1.08;
+    }
+    .audience-card p { margin-top: 16px; color: var(--slate); line-height: 1.7; font-size: 0.9rem; }
+    .audience-list { margin-top: 22px; display: grid; gap: 12px; }
+    .audience-list li {
+      list-style: none;
+      position: relative;
+      padding-left: 22px;
+      color: var(--navy);
+      font-size: 0.83rem;
+      line-height: 1.55;
+    }
+    .audience-list li::before { content: "✓"; position: absolute; left: 0; color: var(--teal); font-weight: 900; }
+    .audience-note {
+      margin-top: 22px;
+      padding: 14px 16px;
+      border-left: 3px solid var(--yellow);
+      background: rgba(244,196,48,0.07);
+      color: var(--navy);
+      font-size: 0.82rem;
+      line-height: 1.55;
+    }
+
+    .docs-section { background: rgba(11,31,58,0.025); }
+    .docs-grid {
+      margin-top: 48px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 0.82fr;
+      gap: 18px;
+      align-items: start;
+    }
+    .docs-card {
+      height: 100%;
+      padding: 30px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--white);
+      box-shadow: var(--shadow-sm);
+    }
+    .docs-card-platform { background: var(--navy); border-color: var(--navy); color: var(--white); }
+    .docs-card-kicker {
+      color: var(--teal);
+      font-size: 0.67rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .docs-card-platform .docs-card-kicker { color: var(--yellow); }
+    .docs-card h3 { margin-top: 10px; font-size: 1.12rem; letter-spacing: -0.025em; }
+    .docs-card p { margin-top: 12px; color: var(--slate); font-size: 0.84rem; line-height: 1.65; }
+    .docs-card-platform p { color: rgba(255,255,255,0.65); }
+    .docs-list { margin-top: 20px; display: grid; gap: 14px; }
+    .docs-list li { list-style: none; color: var(--slate); font-size: 0.82rem; line-height: 1.58; }
+    .docs-card-platform .docs-list li { color: rgba(255,255,255,0.72); }
+    .docs-list strong { color: var(--navy); }
+    .docs-card-platform .docs-list strong { color: var(--white); }
+    .docs-steps { margin-top: 20px; display: grid; gap: 10px; counter-reset: docs; }
+    .docs-steps li {
+      list-style: none;
+      counter-increment: docs;
+      position: relative;
+      padding: 11px 12px 11px 42px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--slate);
+      font-size: 0.8rem;
+      line-height: 1.45;
+      background: var(--off-white);
+    }
+    .docs-steps li::before {
+      content: counter(docs);
+      position: absolute;
+      left: 12px;
+      top: 11px;
+      color: var(--teal);
+      font-size: 0.72rem;
+      font-weight: 900;
+    }
+    .invite-code {
+      display: block;
+      margin-top: 14px;
+      padding: 12px;
+      overflow-x: auto;
+      border-radius: 10px;
+      background: var(--off-white);
+      color: var(--navy);
+      font: 700 0.78rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .docs-card-platform .invite-code { background: rgba(255,255,255,0.08); color: var(--white); }
+    .network-badge {
+      margin-top: 22px;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 12px;
+      color: var(--yellow);
+      font-size: 0.8rem;
+      font-weight: 800;
+      line-height: 1.5;
+    }
+
+    .faq-section { position: relative; }
+    .faq-list { margin-top: 48px; max-width: 920px; }
+    .faq-item { border-top: 1px solid var(--border-strong); }
+    .faq-item:last-child { border-bottom: 1px solid var(--border-strong); }
+    .faq-item summary {
+      position: relative;
+      padding: 22px 42px 22px 0;
+      cursor: pointer;
+      color: var(--navy);
+      font-size: 1rem;
+      font-weight: 800;
+      list-style: none;
+    }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .faq-item summary::after {
+      content: "+";
+      position: absolute;
+      right: 4px;
+      color: var(--teal);
+      font-size: 1.35rem;
+      font-weight: 500;
+    }
+    .faq-item[open] summary::after { content: "−"; }
+    .faq-answer { padding: 0 42px 24px 0; color: var(--slate); font-size: 0.9rem; line-height: 1.75; }
+
+    @media (max-width: 1100px) {
+      .workflow-grid { grid-template-columns: repeat(3, 1fr); }
+      .workflow-step:nth-child(3) { border-right: 0; }
+      .workflow-step:nth-child(-n+3) { border-bottom: 1px solid rgba(255,255,255,0.1); }
+      .docs-grid { grid-template-columns: 1fr 1fr; }
+      .docs-card-platform { grid-column: 1 / -1; }
+    }
+    @media (max-width: 850px) {
+      .audience-grid, .docs-grid { grid-template-columns: 1fr; }
+      .docs-card-platform { grid-column: auto; }
+    }
+    @media (max-width: 650px) {
+      .workflow-grid { grid-template-columns: 1fr; }
+      .workflow-step, .workflow-step:nth-child(3) { min-height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+      .workflow-step:last-child { border-bottom: 0; }
+      .audience-card, .docs-card { padding: 24px 20px; }
+    }
+
   </style>
 </head>
 
@@ -1419,16 +1633,13 @@
       <div class="nav-right">
 
         <nav class="nav-links" aria-label="Primary navigation">
-          <a
-            href="https://github.com/Ebubechukwucyber/sovereign-business-operator"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub
-          </a>
-
-          <a href="#demo-path">Demo path</a>
+          <a href="#product">Product</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#owners">For owners</a>
+          <a href="#clients">For clients</a>
           <a href="#payments">Payments</a>
+          <a href="#docs">Docs</a>
+          <a href="#product-demo">Demo</a>
         </nav>
 
         <div class="live-status">
@@ -1654,7 +1865,7 @@
          FEATURES
     ========================================= -->
 
-    <section id="features">
+    <section id="product">
 
       <div class="container">
 
@@ -1794,6 +2005,139 @@
 
       </div>
 
+    </section>
+
+
+    <!-- =========================================
+         HOW IT WORKS
+    ========================================= -->
+    <section id="how-it-works" class="how-it-works-section">
+      <div class="container">
+        <div class="section-kicker">How it works</div>
+        <h2 class="section-heading">From the right studio invite to a verified payment.</h2>
+        <p class="section-intro">One Sovereign bot can serve many independently configured studios. The invite link tells Sovereign which company a client is trying to reach.</p>
+
+        <div class="workflow-grid">
+          <article class="workflow-step"><div class="step-number">01 / INVITE</div><h3>Open the studio invite</h3><p>The client enters through the studio's Telegram invite link with its unique start slug.</p></article>
+          <article class="workflow-step"><div class="step-number">02 / ORDER</div><h3>Describe the job</h3><p>The client shares the service request, requirements, deadline and relevant details.</p></article>
+          <article class="workflow-step"><div class="step-number">03 / PROPOSAL</div><h3>Receive a proposal</h3><p>Sovereign works within the owner's configuration to scope the work and produce the commercial proposal.</p></article>
+          <article class="workflow-step"><div class="step-number">04 / PAY</div><h3>Pay USDC on Base</h3><p>The client sends the quoted amount in USDC on Base mainnet to the configured payment wallet.</p></article>
+          <article class="workflow-step"><div class="step-number">05 / VERIFY</div><h3>Submit the TX hash</h3><p>The transaction hash is checked against deterministic on-chain rules before payment is accepted.</p></article>
+          <article class="workflow-step"><div class="step-number">06 / RECEIPT</div><h3>Get the records</h3><p>After successful verification, Sovereign records the paid order and can issue the receipt or invoice.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================
+         FOR OWNERS / CLIENTS
+    ========================================= -->
+    <section class="audience-section">
+      <div class="container">
+        <div class="section-kicker">Built for both sides</div>
+        <h2 class="section-heading">One bot. Many studios. Clear entry points.</h2>
+        <p class="section-intro">Sovereign is designed as a multi-owner platform: each studio configures its own business while clients use that studio's invite to enter the correct context.</p>
+
+        <div class="audience-grid">
+          <article id="owners" class="audience-card">
+            <div class="audience-card-label">For owners</div>
+            <h3>Configure your studio once. Share your entry point everywhere.</h3>
+            <p>Your business runs through the same Sovereign Telegram bot, but its services, pricing boundaries, payment wallet and operational settings remain tied to your own studio configuration.</p>
+            <ul class="audience-list">
+              <li>Run <strong>/setup</strong> to configure the studio.</li>
+              <li>Set the payment wallet and signing signature.</li>
+              <li>Share your unique invite slug with clients.</li>
+              <li>Manage orders and view stats from Telegram.</li>
+              <li>Send files, export records and receive paid-order email alerts.</li>
+            </ul>
+            <div class="audience-note">Your invite link is the client-facing door to your studio. Use it in your bio, website, social posts and client messages.</div>
+          </article>
+
+          <article id="clients" class="audience-card">
+            <div class="audience-card-label">For clients</div>
+            <h3>Start with the studio link, not the generic bot entry.</h3>
+            <p>Because Sovereign serves multiple studios, pressing Telegram's generic <strong>Start</strong> button alone may not provide enough context to show a particular company.</p>
+            <ul class="audience-list">
+              <li>Open the studio's invite link or send <strong>/start slug</strong>.</li>
+              <li>Confirm the company context before placing an order.</li>
+              <li>Describe the job and provide the details needed for a quote.</li>
+              <li>Review the proposal before making payment.</li>
+              <li>Pay only with USDC on Base mainnet and submit the transaction hash.</li>
+            </ul>
+            <div class="audience-note">If you cannot see the company you expected, ask the studio owner for their exact invite link and open that link instead.</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================
+         DOCUMENTATION
+    ========================================= -->
+    <section id="docs" class="docs-section">
+      <div class="container">
+        <div class="section-kicker">Documentation</div>
+        <h2 class="section-heading">How to use Sovereign.</h2>
+        <p class="section-intro">The practical guide for clients, studio owners and anyone who needs to understand the trust boundary between AI operations and payment confirmation.</p>
+
+        <div class="docs-grid">
+          <article class="docs-card">
+            <div class="docs-card-kicker">Client guide</div>
+            <h3>Enter the correct company</h3>
+            <p>Sovereign is multi-owner. A generic Start action does not necessarily identify which studio you want, so use the owner's invite.</p>
+            <code class="invite-code">t.me/sovereign_business_operator_bot?start=slug</code>
+            <ul class="docs-steps">
+              <li>Open the studio invite or send <strong>/start slug</strong>.</li>
+              <li>Check that the correct company context is shown.</li>
+              <li>Describe what you want to order.</li>
+              <li>Answer any follow-up questions and review the proposal.</li>
+              <li>Pay the quoted amount in <strong>USDC on Base mainnet</strong>.</li>
+              <li>Paste the transaction hash so Sovereign can verify the payment and record the order.</li>
+            </ul>
+          </article>
+
+          <article class="docs-card">
+            <div class="docs-card-kicker">Owner guide</div>
+            <h3>Set up and operate your studio</h3>
+            <ul class="docs-list">
+              <li><strong>/setup</strong> — create or update your business configuration.</li>
+              <li><strong>Payments wallet</strong> — set the wallet that receives client payments.</li>
+              <li><strong>Signature</strong> — configure the business signature used in the operating flow.</li>
+              <li><strong>Invite slug</strong> — share your unique client entry link.</li>
+              <li><strong>Orders and Stats</strong> — monitor activity from Telegram.</li>
+              <li><strong>Send file and Export</strong> — deliver files and export business records when needed.</li>
+              <li><strong>Email alerts</strong> — receive notifications when an order is successfully paid.</li>
+            </ul>
+          </article>
+
+          <article class="docs-card docs-card-platform">
+            <div class="docs-card-kicker">Platform rules</div>
+            <h3>AI can operate. The chain confirms payment.</h3>
+            <p>Sovereign can assist with intake, quoting and proposal generation, while payment acceptance depends on deterministic on-chain checks rather than an AI decision.</p>
+            <ul class="docs-list">
+              <li><strong>Network:</strong> Base mainnet</li>
+              <li><strong>Chain ID:</strong> 8453</li>
+              <li><strong>Settlement asset:</strong> USDC</li>
+              <li><strong>Client proof:</strong> submitted transaction hash</li>
+            </ul>
+            <div class="network-badge">PAY ONLY USDC ON BASE MAINNET · CHAIN 8453</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================
+         FAQ
+    ========================================= -->
+    <section class="faq-section">
+      <div class="container">
+        <div class="section-kicker">FAQ</div>
+        <h2 class="section-heading">Common questions before you start.</h2>
+        <div class="faq-list">
+          <details class="faq-item" open><summary>I pressed Start and don't see a company.</summary><div class="faq-answer">That can happen because the generic bot entry does not identify which studio you want to open. Sovereign serves multiple owners, so use the exact invite link provided by the studio, such as <strong>t.me/BOT?start=slug</strong>, or send <strong>/start slug</strong>.</div></details>
+          <details class="faq-item"><summary>How do I pay?</summary><div class="faq-answer">Pay only the quoted amount in <strong>USDC on Base mainnet</strong>. After sending the payment to the configured wallet, paste the transaction hash into the conversation so Sovereign can run its deterministic verification checks.</div></details>
+          <details class="faq-item"><summary>Can I run my own studio on this bot?</summary><div class="faq-answer">Yes. Sovereign is designed for multiple studio owners on one Telegram bot. Configure your business with <strong>/setup</strong>, add your payment details and signature, then share your unique invite slug with clients.</div></details>
+          <details class="faq-item"><summary>Why do I need to paste a transaction hash?</summary><div class="faq-answer">The hash gives Sovereign a concrete on-chain payment reference to verify against the expected network, USDC transfer, recipient wallet, quoted amount and other deterministic payment rules.</div></details>
+        </div>
+      </div>
     </section>
 
 
@@ -2173,12 +2517,13 @@
         <div class="video-panel">
           <div class="video-frame">
             <iframe
-              src="https://www.youtube-nocookie.com/embed/wvg5o5vqAsQ?rel=0&modestbranding=1"
+              src="https://www.youtube-nocookie.com/embed/fFmWMjToMao?rel=0&modestbranding=1&playsinline=1"
               title="Sovereign Product Demo"
               loading="lazy"
               referrerpolicy="strict-origin-when-cross-origin"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowfullscreen
+              frameborder="0"
             ></iframe>
           </div>
 
@@ -2190,7 +2535,7 @@
 
             <div class="social-actions">
               <a
-                href="https://youtu.be/wvg5o5vqAsQ"
+                href="https://youtu.be/fFmWMjToMao"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="social-button"
