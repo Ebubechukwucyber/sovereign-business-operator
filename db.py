@@ -906,20 +906,36 @@ def get_order(order_id):
 
 def get_client_orders(
     client_telegram_id,
+    business_id=None,
 ):
     conn = get_connection()
 
-    rows = conn.execute(
-        """
-        SELECT *
-        FROM jobs
-        WHERE client_telegram_id = ?
-        ORDER BY id DESC
-        """,
-        (
-            client_telegram_id,
-        ),
-    ).fetchall()
+    if business_id:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM jobs
+            WHERE client_telegram_id = ?
+              AND business_id = ?
+            ORDER BY id DESC
+            """,
+            (
+                client_telegram_id,
+                int(business_id),
+            ),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM jobs
+            WHERE client_telegram_id = ?
+            ORDER BY id DESC
+            """,
+            (
+                client_telegram_id,
+            ),
+        ).fetchall()
 
     conn.close()
 
@@ -1528,7 +1544,7 @@ def set_payment_details(
     """
     Save the payment instructions for a job.
 
-    This is for TESTNET first.
+    Payment instructions for Base mainnet USDC.
     """
 
     timestamp = now()

@@ -5,69 +5,33 @@
 </p>
 
 <p align="center">
-  <strong>AI business operator on Telegram</strong> — qualify, quote within owner rules, collect USDC on Base, verify on-chain, deliver documents, alert the owner.
+  <strong>AI business operator on Telegram</strong> — qualify, quote within owner rules, collect <strong>USDC on Base mainnet</strong>, verify on-chain, deliver documents, alert the owner.
 </p>
 
 <p align="center">
   <a href="https://basescan.org"><img src="https://img.shields.io/badge/network-Base%20Mainnet-0B1F3A" alt="Base" /></a>
   <img src="https://img.shields.io/badge/token-USDC-F4C430" alt="USDC" />
   <img src="https://img.shields.io/badge/interface-Telegram-26A5E4" alt="Telegram" />
-  <img src="https://img.shields.io/badge/status-mainnet%20ready-1A8A9D" alt="Status" />
+  <img src="https://img.shields.io/badge/tenancy-multi--owner-1A8A9D" alt="Multi-owner" />
 </p>
 
-Sovereign is a **business-agnostic AI operator** for service studios. The owner configures niche, pricing bounds, wallet, signature, and notification email once. Clients complete intake in Telegram, receive a professional proposal, pay in **USDC on Base**, and get receipts and invoices after the chain confirms the transfer. The owner is notified on Telegram and optionally by email (Resend).
+Sovereign is a **business-agnostic AI operator** for service studios. Owners configure niche, pricing bounds, wallet, signature, and notification email. Clients complete intake in Telegram, receive a professional proposal, pay in **USDC on Base (chain id 8453)**, and get receipts and invoices after the chain confirms the transfer.
 
-> **Payment network:** Base mainnet (chain id `8453`) · Circle USDC  
-> **Landing page:** [`web/index.html`](web/index.html)  
-> **Architecture:** [`docs/architecture.png`](docs/architecture.png)
-
----
-
-## Table of contents
-
-1. [Why this exists](#why-this-exists)
-2. [System architecture](#system-architecture)
-3. [Product lifecycle](#product-lifecycle)
-4. [Features](#features)
-5. [Tech stack](#tech-stack)
-6. [Repository structure](#repository-structure)
-7. [Quick start](#quick-start)
-8. [Configuration](#configuration)
-9. [Payment & verification](#payment--verification)
-10. [Owner operations](#owner-operations)
-11. [Deploy](#deploy)
-12. [Landing page](#landing-page)
-13. [Security model](#security-model)
-14. [Roadmap](#roadmap)
-15. [License](#license)
+> **Payment network:** Base **mainnet** only for production · Circle USDC  
+> **Not** Base Sepolia testnet for live demos  
+> **Landing:** [`web/index.html`](web/index.html) · **Architecture:** [`docs/architecture.png`](docs/architecture.png)
 
 ---
 
 ## Why this exists
 
-| Pain | What Sovereign does |
-|------|---------------------|
-| Unqualified leads in chat | Structured intake + dynamic follow-ups |
-| Slow / inconsistent quoting | AI pricing clamped to owner min/max |
+| Pain | Sovereign |
+|------|-----------|
+| Unqualified leads in chat | Dynamic intake + refined answers |
+| Inconsistent quoting | AI pricing clamped to owner min/max |
 | Screenshot “proof of payment” | On-chain USDC verification on Base |
 | Manual invoices | Auto receipt + invoice PDFs |
-| Context switching | Full owner control inside Telegram |
-
----
-
-## System architecture
-
-![System architecture](docs/architecture.png)
-
-```text
-Client (Telegram)
-  → Bot API → handlers (client / owner)
-  → AI intake, pricing, proposals (LLM)
-  → SQLite jobs + payment state
-  → PDF engine (proposal / invoice / receipt / order export)
-  → payment_verifier.py → Base RPC (USDC Transfer)
-  → Owner: Telegram + optional Resend email
-```
+| One studio only | Multi-owner: each owner runs their business on one bot |
 
 ---
 
@@ -75,38 +39,50 @@ Client (Telegram)
 
 ```text
 NEW → QUALIFYING → QUOTED → AWAITING_PAYMENT
-    → TX_SUBMITTED → VERIFYING → PAID / CONFIRMED
+    → TX_SUBMITTED → VERIFYING → PAID
     → DELIVERED → CLOSED
 ```
 
-Payment is confirmed **only** after successful on-chain verification.
+Payment is confirmed **only** after `payment_verifier.py` succeeds. The LLM never marks a job paid.
 
 ---
 
 ## Features
 
 ### Client
-- Welcome uses the owner’s **business name, niche, and services**
-- **Dynamic follow-up questions** from niche + answers so far
-- **Answer refinement** for professional proposals (grammar / structure)
-- **AI pricing** (size, deadline tightness, market sense) inside min/max
-- Scoped **proposal PDF** + payment button
-- One-tap **copyable** wallet address
-- TX hash → on-chain verify → **receipt + invoice**
+- Welcome uses the **selected business** name, niche, and services  
+- Invite: `/start <slug>` or `https://t.me/<bot>?start=<slug>`  
+- Dynamic follow-ups + answer refinement for PDFs  
+- AI pricing (size, deadline tightness) inside min/max  
+- Proposal PDF + one-tap copyable USDC address  
+- TX hash → Base mainnet verify → receipt + invoice  
 
 ### Owner
-- `/setup` — name, niche, services, prices, days, **notify email**
-- Payments — Base USDC receive wallet
-- Signature for documents
-- Orders — pause/resume, mark delivered, close, resend docs
-- **Export order PDF** / batch export
-- **Send file** to the client on Telegram
-- **Email alert** on paid orders (Resend) + Telegram notify
-- Client **@username** on order detail when available
+- `/setup` for **any** Telegram user (their own business)  
+- Public **slug** invite for clients  
+- Orders isolated per business (`business_id`)  
+- Export PDF, send file, mark delivered, resend docs  
+- Email on paid (Resend) + Telegram notify to **that** owner  
 
 ### Trust
-- Amount, token, recipient, confirmations, time window, replay guard
-- **LLM never confirms payment** — only `payment_verifier.py`
+- Amount, token, recipient, confirmations, freshness, replay guard  
+- Documents label **Base** / **USDC** (mainnet), not Sepolia  
+
+---
+
+## Multi-owner (v1)
+
+| Concept | Implementation |
+|---------|----------------|
+| Business id | Owner’s Telegram user id |
+| Invite | `owners.slug` → `/start slug` |
+| Jobs | `jobs.business_id` |
+| Isolation | Owner only sees/acts on own jobs |
+| Demo fallback | Bare `/start` → env `OWNER_TELEGRAM_ID` |
+
+Not yet: billing, web dashboard, multiple businesses per one Telegram account.
+
+See [`docs/multi_tenant_day4_test.md`](docs/multi_tenant_day4_test.md).
 
 ---
 
@@ -115,39 +91,11 @@ Payment is confirmed **only** after successful on-chain verification.
 | Layer | Choice |
 |-------|--------|
 | Interface | Telegram (`python-telegram-bot`) |
-| Language | Python 3.11+ |
-| Storage | SQLite (use a Railway volume in production) |
+| Storage | SQLite + Railway volume recommended |
 | Documents | ReportLab |
-| AI | OpenAI-compatible API (Groq: `openai/gpt-oss-20b`) |
-| Chain | Base mainnet · USDC |
-| Email | Resend API (optional SMTP fallback) |
-
----
-
-## Repository structure
-
-```text
-sovereign-business-operator/
-├── main.py
-├── config.py
-├── db.py
-├── ai.py
-├── pricing.py
-├── pdf_generator.py
-├── payment_receipt.py
-├── payment_verifier.py
-├── handlers/
-│   ├── client.py
-│   └── owner.py
-├── web/
-│   ├── index.html
-│   └── logo.png
-├── docs/
-│   ├── architecture.png
-│   └── logo.png
-├── Procfile
-└── requirements.txt
-```
+| AI | OpenAI-compatible API (e.g. Groq `openai/gpt-oss-20b`) |
+| Chain | **Base mainnet** · Circle USDC |
+| Email | Resend (optional SMTP fallback) |
 
 ---
 
@@ -157,12 +105,11 @@ sovereign-business-operator/
 git clone https://github.com/Ebubechukwucyber/sovereign-business-operator.git
 cd sovereign-business-operator
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create `.env` (see [Configuration](#configuration)), then:
+Configure env (below), then:
 
 ```bash
 python main.py
@@ -175,22 +122,21 @@ python main.py
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | BotFather token |
-| `OWNER_TELEGRAM_ID` | Yes | Owner numeric Telegram id |
+| `OWNER_TELEGRAM_ID` | Yes | Default demo owner Telegram id |
+| `TELEGRAM_BOT_USERNAME` | Recommended | Bot username (no `@`) for invite links |
 | `LLM_API_KEY` | Recommended | Groq / OpenAI-compatible key |
-| `LLM_BASE_URL` | Recommended | Default `https://api.groq.com/openai/v1` |
+| `LLM_BASE_URL` | Recommended | e.g. `https://api.groq.com/openai/v1` |
 | `LLM_MODEL` | Recommended | e.g. `openai/gpt-oss-20b` |
-| `DATABASE_PATH` | No | Default `sovereign.db` — use `/data/sovereign.db` with a volume |
-| `BASE_CHAIN_ID` | No | Default `8453` |
+| `DATABASE_PATH` | No | Use `/data/sovereign.db` with a volume |
+| `BASE_CHAIN_ID` | No | Default **8453** (mainnet) |
 | `BASE_RPC_URL` | No | Default `https://mainnet.base.org` |
-| `BASE_USDC_CONTRACT` | No |  on Base |
+| `BASE_USDC_CONTRACT` | No | Circle USDC on Base mainnet |
 | `RESEND_API_KEY` | For email | Resend API key |
 | `EMAIL_FROM` | For email | e.g. `onboarding@resend.dev` |
-| `EMAIL_ENABLED` | No | Default true when key present |
-| `OWNER_NOTIFY_EMAIL` | Recommended | Fallback inbox for paid-order alerts |
+| `EMAIL_ENABLED` | No | Default true when configured |
+| `OWNER_NOTIFY_EMAIL` | Recommended | Fallback inbox for paid alerts |
 
-**Pricing tip:** set realistic owner min/max for the niche. Simple jobs bias toward the minimum.
-
-**Groq note:** `llama-3.1-8b-instant` was deprecated (Aug 2026). Use `openai/gpt-oss-20b` (or another current Groq model id).
+**Groq:** `llama-3.1-8b-instant` was deprecated (Aug 2026). Use a current model id such as `openai/gpt-oss-20b`.
 
 ---
 
@@ -198,82 +144,39 @@ python main.py
 
 Canonical module: **`payment_verifier.py`**
 
-1. TX hash format  
-2. Success receipt  
-3. Correct chain  
-4. ERC-20 Transfer to studio wallet  
-5. USDC contract  
-6. Amount ≥ quote  
-7. Confirmations  
-8. Time window  
-9. Replay protection  
+Checks include: TX format, success, **Base mainnet**, USDC contract, recipient wallet, amount ≥ quote, confirmations, time window, replay protection.
 
-Then: job → PAID · receipt + invoice · owner Telegram (+ email if configured).
+Receipts, invoices, and chat copy use network label **Base** and token **USDC**.
 
 Mainnet = real value. Test with small amounts.
 
 ---
 
-## Owner operations
+## Deploy (Railway)
 
-1. `/setup` — profile, prices, **email**  
-2. **Payments** — Base USDC wallet  
-3. **Signature** — PDF sign-off  
-4. **Orders** — detail, export PDF, send file, deliver, close  
-
----
-
-## Deploy
-
-1. Push to GitHub  
-2. Railway (or similar) **worker**: `python main.py`  
-3. Set all env vars in the host UI  
-4. Attach a **volume** at `/data` and set `DATABASE_PATH=/data/sovereign.db` so owner data survives deploys  
-5. Only **one** process may poll the bot token  
-
-`Procfile`:
-
-```text
-worker: python main.py
-```
+1. Worker: `python main.py` (`Procfile`)  
+2. Set all env vars  
+3. Volume mount + `DATABASE_PATH=/data/sovereign.db`  
+4. One process only (avoid getUpdates conflict)  
 
 ---
 
-## Landing page
-
-[`web/index.html`](web/index.html) + [`web/logo.png`](web/logo.png)
-
----
-
-## Security model
+## Security
 
 | Control | Behavior |
 |---------|----------|
 | Amount | From chain Transfer only |
-| Recipient | Must match owner wallet |
-| Token | Configured USDC on Base |
-| Freshness / replay | Time window + confirmed-hash guard |
-| Secrets | Env only — never commit keys |
-| AI | Clamped pricing; cannot mark paid |
-
----
-
-## Roadmap
-
-- [x] Intake, dynamic questions, answer refinement  
-- [x] AI pricing within owner bounds + scoped proposals  
-- [x] Base mainnet USDC verification  
-- [x] Receipt + invoice PDFs  
-- [x] Owner deliver / export / send file  
-- [x] Owner email alerts (Resend)  
-- [x] Landing page + brand logo  
+| Recipient | Owner’s configured USDC wallet |
+| Token | Configured USDC on Base mainnet |
+| AI | Cannot confirm payment |
+| Tenancy | Owners cannot open each other’s jobs |
 
 ---
 
 ## License
 
-MIT .
+MIT (or your preferred license).
 
 ---
 
-**Sovereign Business Operator** — an AI agent, a full service-business loop, verifiable USDC settlement on Base.
+**Sovereign Business Operator** — AI commercial judgment, deterministic Base USDC settlement, multi-owner ready.

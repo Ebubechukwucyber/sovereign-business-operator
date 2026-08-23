@@ -315,7 +315,7 @@ def create_payment_receipt_pdf(
                 body_style,
             ),
             Paragraph(
-                "Base Sepolia",
+                "Base",
                 body_style,
             ),
         ],
@@ -535,8 +535,8 @@ def create_payment_receipt_pdf(
     story.append(
         Paragraph(
             "This receipt confirms that the payment "
-            "listed above was verified on the Base "
-            "Sepolia blockchain using the configured "
+            "listed above was verified on Base mainnet "
+            "using the configured "
             "USDC contract and studio wallet.",
             small_style,
         )

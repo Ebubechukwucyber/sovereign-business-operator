@@ -1884,6 +1884,11 @@ async def resend_receipt_callback(update, context):
     except ValueError:
         return
 
+    job = get_job(job_id)
+    if job is not None and not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
+        return
+
     path = get_receipt_file(job_id)
 
     if not path:
@@ -1918,6 +1923,11 @@ async def resend_invoice_callback(update, context):
     try:
         job_id = int(query.data.replace("resend_invoice_", ""))
     except ValueError:
+        return
+
+    job = get_job(job_id)
+    if job is not None and not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
         return
 
     path = get_invoice_file(job_id)
@@ -2171,6 +2181,9 @@ async def sendfile_job_start(update, context):
     if not job:
         await query.message.reply_text("Order not found.")
         return ConversationHandler.END
+    if not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
+        return ConversationHandler.END
     context.user_data["sendfile_job_id"] = job_id
     uname = (job["client_username"] or "").strip()
     who = f"@{uname}" if uname else (job["client_name"] or "client")
@@ -2193,6 +2206,9 @@ async def sendfile_job_receive(update, context):
     job = get_job(job_id)
     if not job:
         await update.message.reply_text("Order not found.")
+        return ConversationHandler.END
+    if not owner_owns_job(update, job):
+        await update.message.reply_text("You don't have access to this order.")
         return ConversationHandler.END
     client_id = job["client_telegram_id"]
     caption = (

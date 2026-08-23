@@ -203,6 +203,18 @@ def rule_number(
         return float(default)
 
 
+
+def payment_network_label(value=None) -> str:
+    """Always show Base mainnet to clients — never Sepolia testnet labels."""
+    text = str(value or "Base").strip()
+    low = text.lower()
+    if "sepolia" in low or "testnet" in low:
+        return "Base"
+    if not text or text.lower() == "base":
+        return "Base"
+    return text
+
+
 def _email_owner_paid_order(job_id, client_name, client_username, tx_hash, amount, owner_telegram_id=None):
     """
     Email owner after payment.
@@ -2043,7 +2055,11 @@ async def my_orders(
 
     user_id = update.effective_user.id
 
-    orders = get_client_orders(user_id)
+    business_id = context.user_data.get("owner_id")
+    orders = get_client_orders(
+        user_id,
+        business_id=business_id if business_id else None,
+    )
 
     if not orders:
         await query.edit_message_text(
@@ -2837,7 +2853,7 @@ async def handle_paid(
                 if len(project_title) > 80:
                     project_title = project_title[:77] + "..."
 
-                network = details.get("payment_network", "Base")
+                network = (details.get("payment_network") or "Base").replace("Sepolia", "").replace("sepolia", "").strip() or "Base"
                 token = details.get("payment_token", "USDC")
                 block_number = result.get("block_number") or ""
                 paid_recipient = result.get("recipient") or recipient
