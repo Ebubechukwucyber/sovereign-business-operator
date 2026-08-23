@@ -391,14 +391,14 @@ SELECT payment_status, COUNT(*) FROM jobs GROUP BY payment_status;
 
 ## Testing checklist
 
-- [ ] `/setup` as owner → slug shown  
-- [ ] Client `/start slug` → correct business name  
-- [ ] Proposal + price within min/max  
-- [ ] Pay USDC on Base → TX verifies  
-- [ ] Receipt + invoice show **Base** / **USDC**  
-- [ ] Owner notified on Telegram (+ email if configured)  
-- [ ] Second owner cannot open first owner’s orders  
-- [ ] Bare `/start` still loads demo business  
+- [x] `/setup` as owner → slug shown  
+- [x] Client `/start slug` → correct business name  
+- [x] Proposal + price within min/max  
+- [x] Pay USDC on Base → TX verifies  
+- [x] Receipt + invoice show **Base** / **USDC**  
+- [x] Owner notified on Telegram (+ email if configured)  
+- [x] Second owner cannot open first owner’s orders  
+- [x] Bare `/start` still loads demo business  
 
 ---
 
@@ -419,7 +419,7 @@ SELECT payment_status, COUNT(*) FROM jobs GROUP BY payment_status;
 
 ## License
 
-MIT (or specify your preferred license).
+MIT.
 
 ---
 
