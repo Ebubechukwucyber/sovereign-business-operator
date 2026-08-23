@@ -16,6 +16,8 @@ from db import (
     update_owner_notify_email,
     get_all_jobs,
     get_business_jobs,
+    business_stats,
+    platform_stats,
     get_job,
     set_job_paused,
     set_job_status,
@@ -107,6 +109,10 @@ def owner_menu_keyboard():
                     "📦 Orders",
                     callback_data="owner_jobs",
                 ),
+                InlineKeyboardButton(
+                    "📊 Stats",
+                    callback_data="owner_stats",
+                ),
             ],
             [
                 InlineKeyboardButton(
@@ -122,6 +128,12 @@ def owner_menu_keyboard():
                 InlineKeyboardButton(
                     "✍️ Signature",
                     callback_data="owner_signature",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "📖 How to use",
+                    callback_data="owner_guide",
                 ),
             ],
         ]
@@ -2261,3 +2273,84 @@ async def sendfile_cancel(update, context):
     context.user_data.pop("sendfile_job_id", None)
     await update.message.reply_text("Send-file cancelled.")
     return ConversationHandler.END
+
+# =========================================================
+# STATS + GUIDE
+# =========================================================
+
+async def owner_stats_callback(update, context):
+    query = update.callback_query
+    if not owner_only(update):
+        if query:
+            await query.answer()
+        return
+    if query:
+        await query.answer()
+        message = query.message
+    else:
+        message = update.message
+
+    stats = business_stats(oid(update))
+    owner = get_owner(oid(update))
+    name = (owner["name"] if owner else None) or "Your studio"
+
+    text = (
+        "📊 Stats — " + str(name) + "\n\n"
+        "Clients (unique): " + str(stats["unique_clients"]) + "\n"
+        "Total orders: " + str(stats["total_jobs"]) + "\n"
+        "Open orders: " + str(stats["open_jobs"]) + "\n"
+        "Paid orders: " + str(stats["paid_jobs"]) + "\n"
+        "Paid volume: " + f"{stats['revenue_usdc']:.2f}" + " USDC\n\n"
+        "Open Orders for details, export, or delivery."
+    )
+    await message.reply_text(text, reply_markup=back_owner_keyboard())
+
+
+async def owner_guide_callback(update, context):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        message = query.message
+    else:
+        message = update.message
+
+    bot = TELEGRAM_BOT_USERNAME or "YourBot"
+    text = (
+        "📖 Owner guide\n\n"
+        "1. /setup — name, niche, services, prices, email\n"
+        "2. Payments — paste your Base USDC wallet\n"
+        "3. Signature — optional name on invoices\n"
+        "4. Share your invite with clients:\n"
+        "   /start your-slug\n"
+        "   https://t.me/" + bot + "?start=your-slug\n\n"
+        "5. Orders — when clients pay, confirm delivery\n"
+        "6. Stats — clients, orders, paid volume\n\n"
+        "Clients must open YOUR invite link so they see your business.\n"
+        "Bare /start without a slug uses the platform demo business only."
+    )
+    await message.reply_text(text, reply_markup=back_owner_keyboard())
+
+
+async def admin_stats_command(update, context):
+    user = update.effective_user
+    if not user or not OWNER_TELEGRAM_ID or user.id != OWNER_TELEGRAM_ID:
+        await update.message.reply_text("Admin only.")
+        return
+    data = platform_stats()
+    lines = [
+        "🛡 Platform stats\n",
+        "Businesses: " + str(data["owners"]),
+        "Jobs: " + str(data["jobs"]),
+        "Paid jobs: " + str(data["paid_jobs"]),
+        "Unique clients: " + str(data["unique_clients"]),
+        "\nTop businesses:",
+    ]
+    for row in data["top_businesses"] or []:
+        nm = row["name"] or "—"
+        slug = row["slug"] or "—"
+        jc = row["job_count"]
+        lines.append("• " + str(nm) + " (/" + str(slug) + ") — " + str(jc) + " orders")
+    if not data["top_businesses"]:
+        lines.append("• None yet")
+    await update.message.reply_text("\n".join(lines))
+

@@ -90,6 +90,9 @@ from handlers.owner import (
     # =====================================================
 
     owner_home,
+    owner_stats_callback,
+    owner_guide_callback,
+    admin_stats_command,
     jobs_command,
     job_command,
     pause_command,
@@ -121,6 +124,8 @@ from handlers.client import (
     # =====================================================
 
     start_client,
+    client_guide,
+    owner_hint_setup,
     new_order_start,
     handle_client_name,
     handle_intake_answer,
@@ -848,6 +853,41 @@ def build_application():
         CallbackQueryHandler(
             owner_home,
             pattern=r"^owner_home$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            owner_stats_callback,
+            pattern=r"^owner_stats$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            owner_guide_callback,
+            pattern=r"^owner_guide$",
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "admin_stats",
+            admin_stats_command,
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            client_guide,
+            pattern=r"^client_guide$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            owner_hint_setup,
+            pattern=r"^owner_hint_setup$",
         )
     )
 

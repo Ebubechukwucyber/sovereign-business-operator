@@ -1061,20 +1061,39 @@ async def start_client(
         if started_with_slug:
             msg = (
                 "No business found for that invite code.\n\n"
-                "Ask the studio for their correct link, e.g.\n"
+                "Ask the studio for their correct invite link, for example:\n"
                 "/start their-business-slug\n\n"
-                "Owners create a business with /setup."
+                "Owners: send /setup to create your business."
             )
         else:
             msg = (
-                "This studio is not set up yet.\n\n"
-                "Clients: use the invite the owner shared "
-                "(/start their-slug).\n\n"
-                "Owners: send /setup to configure your business."
+                "Welcome to Sovereign Business Operator.\n\n"
+                "This bot runs many studios. To see a company, you need "
+                "their invite link.\n\n"
+                "• Clients: ask the business for their link "
+                "(/start their-slug)\n"
+                "• Owners: create your studio with /setup\n\n"
+                "Tap a button below to continue."
             )
+        guide_kb = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "How it works",
+                        callback_data="client_guide",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "I am an owner",
+                        callback_data="owner_hint_setup",
+                    )
+                ],
+            ]
+        )
         target = update.effective_message
         if target:
-            await target.reply_text(msg)
+            await target.reply_text(msg, reply_markup=guide_kb)
         return
 
     business_name = "our studio"
@@ -1113,6 +1132,12 @@ async def start_client(
             InlineKeyboardButton(
                 "💬 Contact us",
                 callback_data="contact_studio",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📖 How to order",
+                callback_data="client_guide",
             )
         ],
     ]
@@ -3144,3 +3169,45 @@ async def contact_studio(
             ]
         ),
     )
+
+
+async def client_guide(update, context):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        message = query.message
+    else:
+        message = update.message
+    lines = [
+        "How to order",
+        "",
+        "1. Open the studio invite link (/start their-slug) so you see their business name.",
+        "2. Tap New order and answer a few questions.",
+        "3. Review the proposal PDF and quote.",
+        "4. Pay USDC on Base to the wallet shown.",
+        "5. Paste the transaction hash from Basescan.",
+        "6. Get receipt and invoice after confirmation.",
+        "",
+        "If you only pressed Start and no company name appears, you are not on a studio invite yet — ask them for their link.",
+        "",
+        "Want to run your own studio? Send /setup.",
+    ]
+    await message.reply_text(chr(10).join(lines))
+
+
+async def owner_hint_setup(update, context):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        message = query.message
+    else:
+        message = update.message
+    lines = [
+        "To create your business on Sovereign:",
+        "",
+        "Send /setup and follow the steps (name, niche, services, prices, email).",
+        "",
+        "Then open Payments and add your Base USDC wallet.",
+        "Share your invite slug with clients so they see your brand.",
+    ]
+    await message.reply_text(chr(10).join(lines))

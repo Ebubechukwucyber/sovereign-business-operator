@@ -430,6 +430,92 @@ def get_business_jobs(business_id):
     return rows
 
 
+
+def business_stats(business_id):
+    """Counts for one business (owner dashboard)."""
+    conn = get_connection()
+    bid = int(business_id or 0)
+    total = conn.execute(
+        "SELECT COUNT(*) AS c FROM jobs WHERE business_id = ?",
+        (bid,),
+    ).fetchone()["c"]
+    paid = conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM jobs
+        WHERE business_id = ?
+          AND (payment_status IN ('CONFIRMED', 'PAID') OR status = 'PAID')
+        """,
+        (bid,),
+    ).fetchone()["c"]
+    open_jobs = conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM jobs
+        WHERE business_id = ?
+          AND status NOT IN ('CLOSED', 'DELIVERED')
+        """,
+        (bid,),
+    ).fetchone()["c"]
+    revenue = conn.execute(
+        """
+        SELECT COALESCE(SUM(payment_amount), 0) AS s FROM jobs
+        WHERE business_id = ?
+          AND (payment_status IN ('CONFIRMED', 'PAID') OR status = 'PAID')
+        """,
+        (bid,),
+    ).fetchone()["s"]
+    clients = conn.execute(
+        """
+        SELECT COUNT(DISTINCT client_telegram_id) AS c FROM jobs
+        WHERE business_id = ?
+        """,
+        (bid,),
+    ).fetchone()["c"]
+    conn.close()
+    return {
+        "total_jobs": int(total or 0),
+        "paid_jobs": int(paid or 0),
+        "open_jobs": int(open_jobs or 0),
+        "unique_clients": int(clients or 0),
+        "revenue_usdc": float(revenue or 0),
+    }
+
+
+def platform_stats():
+    """Super-admin view across all businesses."""
+    conn = get_connection()
+    owners = conn.execute(
+        "SELECT COUNT(*) AS c FROM owners WHERE setup_complete = 1"
+    ).fetchone()["c"]
+    jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+    paid = conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM jobs
+        WHERE payment_status IN ('CONFIRMED', 'PAID') OR status = 'PAID'
+        """
+    ).fetchone()["c"]
+    clients = conn.execute(
+        "SELECT COUNT(DISTINCT client_telegram_id) AS c FROM jobs"
+    ).fetchone()["c"]
+    rows = conn.execute(
+        """
+        SELECT telegram_id, name, slug,
+               (SELECT COUNT(*) FROM jobs j WHERE j.business_id = o.telegram_id) AS job_count
+        FROM owners o
+        WHERE setup_complete = 1
+        ORDER BY job_count DESC, name COLLATE NOCASE
+        LIMIT 20
+        """
+    ).fetchall()
+    conn.close()
+    return {
+        "owners": int(owners or 0),
+        "jobs": int(jobs or 0),
+        "paid_jobs": int(paid or 0),
+        "unique_clients": int(clients or 0),
+        "top_businesses": rows,
+    }
+
+
 def get_owner(telegram_id):
     conn = get_connection()
 
