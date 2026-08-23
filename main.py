@@ -186,8 +186,8 @@ async def start_command(
     """
     Main entry point.
 
-    Registered owner (no client invite args) -> owner panel.
-    Client invite /start slug -> client UI for that business.
+    Registered owner + bare /start or /start own-slug -> owner panel.
+    /start other-slug -> client UI for that business (no self-orders).
     """
 
     user = update.effective_user
@@ -197,21 +197,64 @@ async def start_command(
 
     user_id = user.id
 
-    # Client deep-link always wins (owner can preview another studio)
-    has_client_args = bool(context.args)
+    try:
+        from db import get_owner, get_owner_by_slug
+        row = get_owner(user_id)
+        is_owner = (
+            row is not None
+            and int(row["setup_complete"] or 0) == 1
+        )
+    except Exception:
+        row = None
+        is_owner = False
 
-    if not has_client_args:
+    if not is_owner and OWNER_TELEGRAM_ID and user_id == OWNER_TELEGRAM_ID:
+        is_owner = True
         try:
             from db import get_owner
             row = get_owner(user_id)
-            is_owner = (
-                row is not None
-                and int(row["setup_complete"] or 0) == 1
-            )
         except Exception:
-            is_owner = False
+            row = None
 
-        if is_owner or (OWNER_TELEGRAM_ID and user_id == OWNER_TELEGRAM_ID):
+    # Opening your own invite must not become a client order flow
+    if is_owner:
+        args = list(context.args) if context.args else []
+        if not args:
+            await owner_home(update, context)
+            return ConversationHandler.END
+
+        raw = (args[0] or "").strip()
+        if raw.lower().startswith("biz_"):
+            raw = raw[4:]
+
+        own_slug = ""
+        try:
+            own_slug = (row["slug"] or "").strip().lower() if row else ""
+        except Exception:
+            own_slug = ""
+
+        target = None
+        try:
+            target = get_owner_by_slug(raw)
+        except Exception:
+            target = None
+        if target is None and raw.isdigit():
+            try:
+                target = get_owner(int(raw))
+            except Exception:
+                target = None
+
+        is_self = False
+        if own_slug and raw.lower() == own_slug:
+            is_self = True
+        if target is not None:
+            try:
+                if int(target["telegram_id"]) == int(user_id):
+                    is_self = True
+            except Exception:
+                pass
+
+        if is_self:
             await owner_home(update, context)
             return ConversationHandler.END
 
