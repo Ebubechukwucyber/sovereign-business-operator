@@ -186,11 +186,8 @@ async def start_command(
     """
     Main entry point.
 
-    Owner:
-        -> Owner dashboard
-
-    Client:
-        -> Client-facing business interface
+    Registered owner (no client invite args) -> owner panel.
+    Client invite /start slug -> client UI for that business.
     """
 
     user = update.effective_user
@@ -200,28 +197,25 @@ async def start_command(
 
     user_id = user.id
 
-    # -----------------------------------------------------
-    # OWNER
-    # -----------------------------------------------------
+    # Client deep-link always wins (owner can preview another studio)
+    has_client_args = bool(context.args)
 
-    if user_id == OWNER_TELEGRAM_ID:
+    if not has_client_args:
+        try:
+            from db import get_owner
+            row = get_owner(user_id)
+            is_owner = (
+                row is not None
+                and int(row["setup_complete"] or 0) == 1
+            )
+        except Exception:
+            is_owner = False
 
-        await owner_home(
-            update,
-            context,
-        )
+        if is_owner or (OWNER_TELEGRAM_ID and user_id == OWNER_TELEGRAM_ID):
+            await owner_home(update, context)
+            return ConversationHandler.END
 
-        return ConversationHandler.END
-
-    # -----------------------------------------------------
-    # CLIENT
-    # -----------------------------------------------------
-
-    await start_client(
-        update,
-        context,
-    )
-
+    await start_client(update, context)
     return ConversationHandler.END
 
 

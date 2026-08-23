@@ -1370,11 +1370,14 @@ Return ONLY valid JSON:
 
 Price rules (must follow):
 - price MUST be between {minimum} and {maximum}
-- Tiny / single / simple / non-urgent → use {minimum}
-  or only a few percent above it
+- Real tiny / single / simple / non-urgent jobs → near {minimum}
 - Average everyday order → lower third of the band
 - Large, custom, or very tight deadline → higher in band
-- Never default to midpoint or maximum for a small job
+- If answers are vague, nonsense, gibberish, empty of real job
+  detail, or clearly not a serious brief → use MID-BAND
+  (about halfway between min and max), NOT the minimum.
+  Low prices are only for clear, coherent small jobs.
+- Never reward unclear or junk input with the cheapest quote
 - Prefer common street/market rates for the niche when unsure
 - in_scope only from client need + offered services
 - no markdown, no text outside JSON
@@ -1504,7 +1507,37 @@ Price rules (must follow):
             return "MEDIUM"
         return "LOW"
 
+    def _looks_like_gibberish(text: str) -> bool:
+        """True when input is too weak to justify a low quote."""
+        t = (text or "").strip().lower()
+        if len(t) < 4:
+            return True
+        letters = re.findall(r"[a-z]", t)
+        if len(letters) < 4:
+            return True
+        vowels = sum(1 for c in letters if c in "aeiou")
+        if len(letters) >= 8 and vowels / len(letters) < 0.18:
+            return True
+        if re.search(r"(.)\1{4,}", t):
+            return True
+        # very few real word tokens
+        tokens = re.findall(r"[a-z]{2,}", t)
+        if len(tokens) <= 1 and len(letters) >= 6:
+            return True
+        meaningful = (
+            "photo", "event", "wedding", "edit", "session", "hour",
+            "day", "week", "guest", "cake", "order", "need", "want",
+            "shoot", "portrait", "group", "design", "logo", "clean",
+            "deliver", "asap", "urgent", "people", "person", "size",
+        )
+        if not any(w in t for w in meaningful) and len(tokens) < 3:
+            # short nonsense without service words
+            if len(t) < 20 and not re.search(r"\d", t):
+                return True
+        return False
+
     def _smart_band_price() -> tuple[float, str]:
+
         """
         Size + deadline tightness → position in owner band.
         Tiny relaxed jobs sit on (or barely above) minimum.
@@ -1512,10 +1545,19 @@ Price rules (must follow):
         text = _answers_text()
         size = _size_score(text)
         urgency = _urgency_score(text)
+        # Junk / gibberish briefs must NOT get the cheapest price
+        if _looks_like_gibberish(text):
+            span = max(maximum - minimum, 0)
+            price = _clamp_price(
+                minimum + span * 0.45,
+                minimum,
+                maximum,
+            )
+            return price, "MEDIUM"
         complexity = _complexity_label(size, urgency)
         # frac in [0, 1] of the owner band
         frac = size * 0.55 + urgency * 0.35
-        # floor: absolute minimum for clearly tiny jobs
+        # floor: absolute minimum only for clear tiny jobs
         if size <= 0.1 and urgency <= 0.2:
             frac = 0.0
         elif size <= 0.15:
