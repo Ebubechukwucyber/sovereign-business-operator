@@ -47,7 +47,7 @@
 
 ## Overview
 
-**Sovereign Business Operator** is a Telegram-native **AI agent for service businesses**. It is business-agnostic: the owner configures niche, services, price bounds, USDC wallet, signature, and alert email once. The agent then runs a full commercial loop for that studio.
+**Sovereign** is a Telegram-native **AI agent for service businesses**. It is business-agnostic: the owner configures niche, services, price bounds, USDC wallet, signature, and alert email once. The agent then runs a full commercial loop for that studio.
 
 It is designed for the **Orion Agents** class of product: useful, listable, and trustworthy — AI where judgment helps, deterministic code where money is involved.
 
@@ -58,7 +58,7 @@ It is designed for the **Orion Agents** class of product: useful, listable, and 
 | **Settlement** | Base mainnet USDC verification only via `payment_verifier.py` |
 | **Documents** | Proposal, receipt, invoice, order export PDFs |
 
-**Production payment network:** Base **mainnet** (chain id `8453`), Circle USDC.  
+**Production payment network:** Base **mainnet** (chain id `8453`), USDC on Base.
 Documents and chat labels show **Base** / **USDC** — not Base Sepolia.
 
 ---
@@ -411,7 +411,7 @@ SELECT payment_status, COUNT(*) FROM jobs GROUP BY payment_status;
 - [x] Owner tools (export, send file, deliver)  
 - [x] Resend email alerts  
 - [x] Multi-owner v1 (slug + isolation)  
-- [ ] Owner stats + super-admin usage view  
+- [x] Owner stats + super-admin usage view  
 - [ ] Billing / self-serve SaaS dashboard  
 - [ ] Richer multi-business-per-user  
 
