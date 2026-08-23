@@ -58,12 +58,24 @@ EDIT_SIGNATURE_IMAGE = 123
 # =========================================================
 
 def owner_only(update: Update) -> bool:
+    """Any registered owner (or legacy env owner) may use owner tools."""
     user = update.effective_user
-
     if not user:
         return False
+    if OWNER_TELEGRAM_ID and user.id == OWNER_TELEGRAM_ID:
+        return True
+    row = get_owner(user.id)
+    return row is not None
 
-    return user.id == OWNER_TELEGRAM_ID
+
+def oid(update: Update) -> int:
+    """Business id = owner telegram id (one business per owner in v1)."""
+    return update.effective_user.id
+
+
+def can_setup(update: Update) -> bool:
+    """Anyone can run setup to create their own business."""
+    return bool(update.effective_user)
 
 
 # =========================================================
@@ -147,7 +159,7 @@ async def owner_home(update, context):
     else:
         message = update.message
 
-    owner = get_owner(OWNER_TELEGRAM_ID)
+    owner = get_owner(oid(update))
 
     if not owner or not owner["setup_complete"]:
 
@@ -205,7 +217,12 @@ async def owner_home(update, context):
         "• Business Settings — name, niche, prices\n"
         "• Payments — USDC wallet\n"
         "• Signature — invoice/receipt sign-off"
-        f"{next_hint}",
+        f"{next_hint}"
+        + (
+            (lambda s: (f"\n\n🔗 Client invite\nShare: /start {s}" if s else ""))(
+                ensure_owner_slug(oid(update), owner["name"] or "")
+            )
+        ),
         reply_markup=owner_menu_keyboard(),
     )
 
@@ -216,7 +233,7 @@ async def owner_home(update, context):
 
 async def setup_start(update, context):
 
-    if not owner_only(update):
+    if not can_setup(update):
         return ConversationHandler.END
 
     context.user_data["setup"] = {}
@@ -450,7 +467,7 @@ async def setup_email(update, context):
     }
 
     save_owner(
-        telegram_id=OWNER_TELEGRAM_ID,
+        telegram_id=oid(update),
         name=data["name"],
         niche=data["niche"],
         services_text=data["services"],
@@ -470,7 +487,7 @@ async def setup_email(update, context):
     invite_slug = ""
     try:
         invite_slug = ensure_owner_slug(
-            OWNER_TELEGRAM_ID,
+            oid(update),
             data.get("name") or "",
         )
     except Exception:
@@ -603,7 +620,7 @@ async def settings_menu(update, context):
 
     await query.answer()
 
-    owner = get_owner(OWNER_TELEGRAM_ID)
+    owner = get_owner(oid(update))
 
     if not owner:
         await query.message.reply_text(
@@ -720,7 +737,7 @@ async def save_setting_value(update, context):
 
     value = update.message.text.strip()
 
-    owner = get_owner(OWNER_TELEGRAM_ID)
+    owner = get_owner(oid(update))
 
     if not owner:
         await update.message.reply_text(
@@ -839,9 +856,7 @@ async def save_setting_value(update, context):
 
         return ConversationHandler.END
 
-    rules = get_business_rules(
-        OWNER_TELEGRAM_ID
-    )
+    rules = get_business_rules(oid(update))
 
     if not isinstance(rules, dict):
         rules = {}
@@ -886,7 +901,7 @@ async def save_setting_value(update, context):
     rules["pricing"] = pricing
 
     save_owner(
-        telegram_id=OWNER_TELEGRAM_ID,
+        telegram_id=oid(update),
         name=data["name"],
         niche=data["niche"],
         services_text=data["services_text"],
@@ -955,9 +970,7 @@ async def payments_menu(update, context):
 
     await query.answer()
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = get_owner(oid(update))
 
     if not owner:
         await query.message.reply_text(
@@ -1030,9 +1043,7 @@ async def save_wallet(update, context):
         )
         return EDIT_WALLET
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = get_owner(oid(update))
 
     if not owner:
         await update.message.reply_text(
@@ -1041,7 +1052,7 @@ async def save_wallet(update, context):
         return ConversationHandler.END
 
     save_owner(
-        telegram_id=OWNER_TELEGRAM_ID,
+        telegram_id=oid(update),
         name=owner["name"],
         niche=owner["niche"],
         services_text=owner["services_text"],
@@ -1051,9 +1062,7 @@ async def save_wallet(update, context):
         tone=owner["tone"] or "professional",
         usdc_address=value,
         setup_complete=1,
-        business_rules=get_business_rules(
-            OWNER_TELEGRAM_ID
-        ),
+        business_rules=get_business_rules(oid(update)),
         signature_name=owner["signature_name"] or "",
         signature_title=owner["signature_title"] or "",
         signature_image=owner["signature_image"] or "",
@@ -1126,9 +1135,7 @@ async def signature_menu(update, context):
 
     await query.answer()
 
-    signature = get_owner_signature(
-        OWNER_TELEGRAM_ID
-    )
+    signature = get_owner_signature(oid(update))
 
     name = (
         signature["signature_name"]
@@ -1225,9 +1232,7 @@ async def save_signature_text(update, context):
 
         return EDIT_SIGNATURE_TITLE
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = get_owner(oid(update))
 
     if not owner:
         await update.message.reply_text(
@@ -1262,7 +1267,7 @@ async def save_signature_text(update, context):
         return ConversationHandler.END
 
     save_owner_signature(
-        telegram_id=OWNER_TELEGRAM_ID,
+        telegram_id=oid(update),
         signature_name=signature_name,
         signature_title=signature_title,
         signature_image=owner["signature_image"] or "",
@@ -1294,9 +1299,7 @@ async def save_signature_image(update, context):
 
     file_id = photo.file_id
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    owner = get_owner(oid(update))
 
     if not owner:
         await update.message.reply_text(
@@ -1305,7 +1308,7 @@ async def save_signature_image(update, context):
         return ConversationHandler.END
 
     save_owner_signature(
-        telegram_id=OWNER_TELEGRAM_ID,
+        telegram_id=oid(update),
         signature_name=owner["signature_name"] or "",
         signature_title=owner["signature_title"] or "",
         signature_image=file_id,
@@ -1332,7 +1335,7 @@ async def jobs_command(update, context):
     if not owner_only(update):
         return
 
-    jobs = get_business_jobs(OWNER_TELEGRAM_ID)
+    jobs = get_business_jobs(oid(update))
 
     if update.callback_query:
 
@@ -2061,7 +2064,7 @@ async def export_job_callback(update, context):
     if not job:
         await query.message.reply_text("Order not found.")
         return
-    owner = get_owner(OWNER_TELEGRAM_ID)
+    owner = get_owner(oid(update))
     business = (owner["name"] if owner else None) or "Studio"
     try:
         from pdf_generator import create_order_summary_pdf
@@ -2082,11 +2085,11 @@ async def export_all_jobs_callback(update, context):
         await query.answer()
         return
     await query.answer()
-    jobs = get_business_jobs(OWNER_TELEGRAM_ID)
+    jobs = get_business_jobs(oid(update))
     if not jobs:
         await query.message.reply_text("No orders to export.")
         return
-    owner = get_owner(OWNER_TELEGRAM_ID)
+    owner = get_owner(oid(update))
     business = (owner["name"] if owner else None) or "Studio"
     try:
         from pdf_generator import create_orders_batch_pdf

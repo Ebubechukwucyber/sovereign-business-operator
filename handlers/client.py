@@ -1019,6 +1019,7 @@ async def start_client(
         if owner is None and raw.isdigit():
             owner = get_owner(int(raw))
 
+    started_with_slug = bool(args)
     if owner is None:
         owner = get_owner(OWNER_TELEGRAM_ID)
 
@@ -1028,6 +1029,26 @@ async def start_client(
         )
     else:
         context.user_data["owner_id"] = OWNER_TELEGRAM_ID
+
+    if owner is None or not int(row_get(owner, "setup_complete", 0) or 0):
+        if started_with_slug:
+            msg = (
+                "No business found for that invite code.\n\n"
+                "Ask the studio for their correct link, e.g.\n"
+                "/start their-business-slug\n\n"
+                "Owners create a business with /setup."
+            )
+        else:
+            msg = (
+                "This studio is not set up yet.\n\n"
+                "Clients: use the invite the owner shared "
+                "(/start their-slug).\n\n"
+                "Owners: send /setup to configure your business."
+            )
+        target = update.effective_message
+        if target:
+            await target.reply_text(msg)
+        return
 
     business_name = "our studio"
     niche = ""
