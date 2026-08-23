@@ -1921,6 +1921,38 @@ async def handle_edit_request(
         )
         analysis["pricing_source"] = "rules"
 
+    # Revisions must not ratchet the price up every time.
+    # Keep previous quote unless the client clearly added scope.
+    try:
+        prev_price = float(job["quoted_price"] or 0)
+    except Exception:
+        prev_price = 0.0
+    req_l = (request or "").lower()
+    scope_up = any(
+        w in req_l
+        for w in (
+            "more", "extra", "add", "also", "another", "plus",
+            "larger", "bigger", "hours", "urgent", "asap",
+            "today", "additional", "upgrade",
+        )
+    )
+    if prev_price > 0:
+        min_p = safe_float(row_get(owner, "min_price", 0), 0)
+        max_p = safe_float(row_get(owner, "max_price", prev_price), prev_price)
+        if not scope_up:
+            # Cosmetic / clarification: keep prior price
+            price = prev_price
+            analysis = analysis or {}
+            analysis["internal_analysis"] = (
+                (analysis.get("internal_analysis") or "")
+                + " Price held after revision (no clear scope increase)."
+            ).strip()
+        else:
+            # Allow modest increase only, still inside band
+            cap = min(max_p, prev_price * 1.15)
+            price = min(max(price, prev_price), cap)
+            price = max(min_p, min(max_p, price))
+
     save_job_analysis(
         job_id,
         complexity=analysis.get("complexity", "MEDIUM"),

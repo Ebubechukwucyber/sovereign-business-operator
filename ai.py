@@ -1370,15 +1370,14 @@ Return ONLY valid JSON:
 
 Price rules (must follow):
 - price MUST be between {minimum} and {maximum}
-- Real tiny / single / simple / non-urgent jobs → near {minimum}
-- Average everyday order → lower third of the band
-- Large, custom, or very tight deadline → higher in band
-- If answers are vague, nonsense, gibberish, empty of real job
-  detail, or clearly not a serious brief → use MID-BAND
-  (about halfway between min and max), NOT the minimum.
-  Low prices are only for clear, coherent small jobs.
-- Never reward unclear or junk input with the cheapest quote
-- Prefer common street/market rates for the niche when unsure
+- Prefer AFFORDABLE everyday quotes — stay in the LOWER half
+  of the band unless the job is clearly large or rushed
+- Clear tiny / single / simple / non-urgent → at or just above {minimum}
+- Typical small order → lower third of the band (not midpoint)
+- Large, multi-hour, event, or very tight deadline → upper half only when justified
+- Unclear or weak briefs → about 15–25% up from minimum (still affordable),
+  never jump to midpoint/max
+- Do not inflate prices; fit local everyday budgets
 - in_scope only from client need + offered services
 - no markdown, no text outside JSON
 """
@@ -1418,7 +1417,7 @@ Price rules (must follow):
 
     def _size_score(text: str) -> float:
         """0 = tiny, 1 = very large."""
-        score = 0.25
+        score = 0.12
         if re.search(
             r"\b(1|one|single|a)\b",
             text,
@@ -1548,20 +1547,21 @@ Price rules (must follow):
         # Junk / gibberish briefs must NOT get the cheapest price
         if _looks_like_gibberish(text):
             span = max(maximum - minimum, 0)
+            # Affordable default — low band, not midpoint
             price = _clamp_price(
-                minimum + span * 0.45,
+                minimum + span * 0.18,
                 minimum,
                 maximum,
             )
-            return price, "MEDIUM"
+            return price, "LOW"
         complexity = _complexity_label(size, urgency)
-        # frac in [0, 1] of the owner band
-        frac = size * 0.55 + urgency * 0.35
-        # floor: absolute minimum only for clear tiny jobs
-        if size <= 0.1 and urgency <= 0.2:
+        # Prefer lower band: typical jobs stay affordable
+        frac = size * 0.40 + urgency * 0.25
+        if size <= 0.12 and urgency <= 0.2:
             frac = 0.0
-        elif size <= 0.15:
-            frac = min(frac, 0.08)
+        elif size <= 0.2:
+            frac = min(frac, 0.12)
+        frac = min(frac, 0.65)  # rarely need top of band from heuristics
         span = max(maximum - minimum, 0)
         price = _clamp_price(
             minimum + span * frac,
