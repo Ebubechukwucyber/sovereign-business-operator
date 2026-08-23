@@ -16,6 +16,8 @@ TELEGRAM_BOT_TOKEN = os.getenv(
 ).strip()
 
 
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
+
 OWNER_TELEGRAM_ID = int(
     os.getenv(
         "OWNER_TELEGRAM_ID",

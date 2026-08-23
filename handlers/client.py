@@ -203,7 +203,7 @@ def rule_number(
         return float(default)
 
 
-def _email_owner_paid_order(job_id, client_name, client_username, tx_hash, amount):
+def _email_owner_paid_order(job_id, client_name, client_username, tx_hash, amount, owner_telegram_id=None):
     """
     Email owner after payment.
     Prefer Resend API; fall back to SMTP if configured.
@@ -325,13 +325,25 @@ async def notify_owner_payment_confirmed(
     client_username="",
 ):
     from config import OWNER_TELEGRAM_ID
+    from db import get_job
 
-    if not OWNER_TELEGRAM_ID:
+    owner_chat_id = OWNER_TELEGRAM_ID
+    try:
+        job = get_job(job_id)
+        if job is not None:
+            biz = int(job["business_id"] or 0)
+            if biz:
+                owner_chat_id = biz
+    except Exception as error:
+        print("notify: resolve business_id failed:", error)
+
+    if not owner_chat_id:
+        print("notify: no owner chat id")
         return
 
     uname = f"@{client_username}" if client_username else "—"
     text = (
-        f"💰 Payment confirmed\n\n"
+        "💰 Payment confirmed\n\n"
         f"Project #{job_id}\n"
         f"Client: {client_name}\n"
         f"Telegram: {uname}\n"
@@ -348,23 +360,25 @@ async def notify_owner_payment_confirmed(
             client_username,
             tx_hash,
             amount,
+            owner_telegram_id=owner_chat_id,
         )
-    except Exception:
-        pass
+    except Exception as error:
+        print("Email notify wrapper:", error)
 
     try:
         await context.bot.send_message(
-            chat_id=OWNER_TELEGRAM_ID,
+            chat_id=owner_chat_id,
             text=text,
         )
-    except Exception:
+    except Exception as error:
+        print("Telegram owner notify failed:", error)
         return
 
     if receipt_pdf is not None:
         try:
             receipt_pdf.seek(0)
             await context.bot.send_document(
-                chat_id=OWNER_TELEGRAM_ID,
+                chat_id=owner_chat_id,
                 document=receipt_pdf,
                 filename=f"Receipt_SB-{int(job_id):04d}.pdf",
                 caption=f"📄 Receipt for Project #{job_id}",
@@ -376,13 +390,14 @@ async def notify_owner_payment_confirmed(
         try:
             invoice_pdf.seek(0)
             await context.bot.send_document(
-                chat_id=OWNER_TELEGRAM_ID,
+                chat_id=owner_chat_id,
                 document=invoice_pdf,
                 filename=f"Invoice_SB-{int(job_id):04d}.pdf",
                 caption=f"🧾 Invoice for Project #{job_id}",
             )
         except Exception:
             pass
+
 
 
 def parse_iso_timestamp(value):

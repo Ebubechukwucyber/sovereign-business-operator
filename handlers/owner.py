@@ -7,7 +7,7 @@ from telegram.ext import ConversationHandler
 
 from ai import polish_owner_field
 
-from config import OWNER_TELEGRAM_ID
+from config import OWNER_TELEGRAM_ID, TELEGRAM_BOT_USERNAME
 
 from db import (
     get_owner,
@@ -76,6 +76,23 @@ def oid(update: Update) -> int:
 def can_setup(update: Update) -> bool:
     """Anyone can run setup to create their own business."""
     return bool(update.effective_user)
+
+
+def owner_owns_job(update: Update, job) -> bool:
+    """Job belongs to this owner (business_id == owner telegram id)."""
+    if job is None:
+        return False
+    try:
+        biz = int(job["business_id"] or 0)
+    except Exception:
+        biz = 0
+    uid = oid(update)
+    if biz and biz == uid:
+        return True
+    # Legacy jobs with business_id 0: only env owner
+    if not biz and OWNER_TELEGRAM_ID and uid == OWNER_TELEGRAM_ID:
+        return True
+    return False
 
 
 # =========================================================
@@ -519,8 +536,15 @@ async def setup_email(update, context):
         "Recommended next: Payments (USDC wallet), "
         "then Signature.\n\n"
         + (
-            f"Client invite link slug: {invite_slug}\n"
-            f"Clients can open: /start {invite_slug}"
+            (
+                f"Client invite link slug: {invite_slug}\n"
+                f"Clients can open: /start {invite_slug}"
+                + (
+                    f"\nhttps://t.me/{TELEGRAM_BOT_USERNAME}?start={invite_slug}"
+                    if TELEGRAM_BOT_USERNAME
+                    else ""
+                )
+            )
             if invite_slug
             else "Client invite slug will be ready after setup."
         ),
@@ -1648,6 +1672,12 @@ async def owner_job_detail(update, context):
 
         return
 
+    if not owner_owns_job(update, job):
+        await query.message.reply_text(
+            "You don't have access to this order."
+        )
+        return
+
     await query.message.edit_text(
         format_job_details(job),
         reply_markup=job_detail_keyboard(job),
@@ -1680,6 +1710,9 @@ async def pause_job_callback(update, context):
         return
 
     job = get_job(job_id)
+    if job is not None and not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
+        return
 
     if not job:
         await query.message.reply_text(
@@ -1722,6 +1755,9 @@ async def resume_job_callback(update, context):
         return
 
     job = get_job(job_id)
+    if job is not None and not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
+        return
 
     if not job:
         await query.message.reply_text(
@@ -1762,6 +1798,9 @@ async def deliver_job_callback(update, context):
         return
 
     job = get_job(job_id)
+    if job is not None and not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
+        return
 
     if not job:
         await query.message.reply_text("Order not found.")
@@ -1813,6 +1852,9 @@ async def close_job_callback(update, context):
         return
 
     job = get_job(job_id)
+    if job is not None and not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
+        return
 
     if not job:
         await query.message.reply_text("Order not found.")
@@ -2063,6 +2105,9 @@ async def export_job_callback(update, context):
     job = get_job(job_id)
     if not job:
         await query.message.reply_text("Order not found.")
+        return
+    if not owner_owns_job(update, job):
+        await query.message.reply_text("You don't have access to this order.")
         return
     owner = get_owner(oid(update))
     business = (owner["name"] if owner else None) or "Studio"
