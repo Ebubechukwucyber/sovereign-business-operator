@@ -13,6 +13,7 @@ from db import (
     get_owner,
     save_owner,
     ensure_owner_slug,
+    set_owner_slug,
     update_owner_notify_email,
     get_all_jobs,
     get_business_jobs,
@@ -48,6 +49,7 @@ EDIT_SERVICES = 112
 EDIT_MIN_PRICE = 113
 EDIT_MAX_PRICE = 114
 EDIT_DAYS = 115
+EDIT_SLUG = 116
 
 EDIT_WALLET = 120
 EDIT_SIGNATURE_NAME = 121
@@ -626,6 +628,12 @@ def settings_keyboard():
             ],
             [
                 InlineKeyboardButton(
+                    "🔗 Invite link name",
+                    callback_data="edit_slug",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
                     "💳 Base USDC Payments",
                     callback_data="owner_payments",
                 ),
@@ -767,6 +775,51 @@ async def edit_days_start(update, context):
     )
 
     return EDIT_DAYS
+
+
+async def edit_slug_start(update, context):
+    query = update.callback_query
+    if not owner_only(update):
+        await query.answer()
+        return ConversationHandler.END
+    await query.answer()
+    owner = get_owner(oid(update))
+    current = ""
+    try:
+        current = (owner["slug"] or "").strip() if owner else ""
+    except Exception:
+        current = ""
+    bot = TELEGRAM_BOT_USERNAME or "YourBot"
+    hint = ("Current: /start " + current) if current else "No custom link yet"
+    msg = (
+        "Choose a unique invite link name for clients.\n\n"
+        + hint
+        + "\n\nUse letters, numbers, hyphens only (e.g. acme-photos)."
+        + "\nClients will open: /start your-name"
+        + "\nor https://t.me/" + bot + "?start=your-name"
+        + "\n\nSend the link name now."
+    )
+    await query.message.reply_text(msg)
+    return EDIT_SLUG
+
+
+async def save_slug_value(update, context):
+    if not owner_only(update):
+        return ConversationHandler.END
+    raw = (update.message.text or "").strip()
+    ok, result = set_owner_slug(oid(update), raw)
+    if not ok:
+        await update.message.reply_text(result + "\n\nTry another name.")
+        return EDIT_SLUG
+    bot = TELEGRAM_BOT_USERNAME or "YourBot"
+    link = "https://t.me/" + bot + "?start=" + result
+    await update.message.reply_text(
+        "Invite link updated.\n\n"
+        "Slug: " + result + "\n"
+        "Share: /start " + result + "\n"
+        + link
+    )
+    return ConversationHandler.END
 
 
 async def save_setting_value(update, context):

@@ -51,6 +51,8 @@ from handlers.owner import (
     edit_min_start,
     edit_max_start,
     edit_days_start,
+    edit_slug_start,
+    save_slug_value,
     save_setting_value,
 
     EDIT_NAME,
@@ -59,6 +61,7 @@ from handlers.owner import (
     EDIT_MIN_PRICE,
     EDIT_MAX_PRICE,
     EDIT_DAYS,
+    EDIT_SLUG,
 
     # =====================================================
     # PAYMENTS
@@ -433,6 +436,8 @@ def build_application():
 
             CallbackQueryHandler(
                 edit_days_start,
+    edit_slug_start,
+    save_slug_value,
                 pattern=r"^edit_days$",
             ),
         ],
@@ -513,6 +518,12 @@ def build_application():
             # DELIVERY DAYS
             # -------------------------------------------------
 
+            EDIT_SLUG: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    save_slug_value,
+                ),
+            ],
             EDIT_DAYS: [
 
                 MessageHandler(

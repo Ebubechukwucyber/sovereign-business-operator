@@ -1220,25 +1220,26 @@ async def new_order_start(
 
     from config import OWNER_TELEGRAM_ID
 
-    owner = get_owner(
-        OWNER_TELEGRAM_ID
-    )
+    # Keep the business from /start slug — do not reset to env owner
+    bound_id = context.user_data.get("owner_id") or OWNER_TELEGRAM_ID
+    owner = get_owner(bound_id)
+
+    if owner is None and OWNER_TELEGRAM_ID:
+        owner = get_owner(OWNER_TELEGRAM_ID)
+        bound_id = OWNER_TELEGRAM_ID
 
     if owner is None:
         await query.edit_message_text(
-            "The business is not fully configured yet."
+            "The business is not fully configured yet.\n\n"
+            "Open the studio invite link first (/start their-slug)."
         )
-
         return ConversationHandler.END
 
+    # Preserve owner binding across clear
     context.user_data.clear()
-
-    context.user_data["owner_id"] = row_get(
-        owner,
-        "telegram_id",
-        OWNER_TELEGRAM_ID,
+    context.user_data["owner_id"] = int(
+        row_get(owner, "telegram_id", bound_id) or bound_id
     )
-
     context.user_data["answers"] = {}
     context.user_data["question_index"] = 0
 

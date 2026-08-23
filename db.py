@@ -389,6 +389,34 @@ def ensure_owner_slug(telegram_id, name="") -> str:
     return slug
 
 
+
+def set_owner_slug(telegram_id, desired_slug: str):
+    """
+    Set a unique public invite slug for an owner.
+    Returns (ok: bool, slug_or_error: str).
+    """
+    desired = _slugify(desired_slug or "")
+    if not desired or len(desired) < 2:
+        return False, "Use at least 2 letters or numbers (e.g. my-studio)."
+    if desired in ("start", "setup", "admin", "help", "bot"):
+        return False, "That slug is reserved. Choose another."
+    conn = get_connection()
+    taken = conn.execute(
+        "SELECT telegram_id FROM owners WHERE lower(slug) = ? AND telegram_id != ?",
+        (desired, telegram_id),
+    ).fetchone()
+    if taken:
+        conn.close()
+        return False, "That link name is already taken. Try another."
+    conn.execute(
+        "UPDATE owners SET slug = ?, updated_at = ? WHERE telegram_id = ?",
+        (desired, now(), telegram_id),
+    )
+    conn.commit()
+    conn.close()
+    return True, desired
+
+
 def get_owner_by_slug(slug: str):
     slug = (slug or "").strip().lower()
     if not slug:

@@ -387,18 +387,34 @@ def format_project_title(project):
     project = clean_text(project)
 
     if not project:
-        return "Business Service Project"
+        return "Custom service request"
 
     project = project.rstrip(". ")
 
-    # Keep reasonable client wording.
+    # Strip leading filler: "I need a cake" → "Cake"
+    project = re.sub(
+        r"^(i\s+)?(just\s+)?(need|want|looking for|require|"
+        r"would like|wanna|gimme)\s+(a|an|some|one)?\s*",
+        "",
+        project,
+        flags=re.I,
+    ).strip()
+    project = re.sub(
+        r"^(a|an|the)\s+",
+        "",
+        project,
+        flags=re.I,
+    ).strip()
+
+    if not project:
+        return "Custom service request"
+
+    project = project[0].upper() + project[1:]
+
     if len(project) <= 70:
         return project
 
-    return (
-        project[:67].rstrip()
-        + "..."
-    )
+    return project[:67].rstrip() + "..."
 
 
 def looks_like_catering(answers, services=""):
@@ -545,13 +561,12 @@ def template_proposal(
             "Executive Summary",
             (
                 f"{business_name} is pleased to provide this "
-                f"proposal for {project.rstrip('.')}."
+                f"proposal for {project_title}."
             ),
             (
-                "The proposal is based on the information "
-                "provided by the client and is intended to "
-                "define the initial project scope, delivery "
-                "expectations and project investment."
+                "This document summarises the agreed scope, "
+                "timeline expectations, and investment based "
+                "on the details you shared."
             ),
             "",
         ]
@@ -565,15 +580,13 @@ def template_proposal(
         [
             "Scope",
             (
-                f"The requested service is: "
-                f"{project.rstrip('.')}. "
-                f"The work will be carried out according "
-                f"to the agreed requirements and information "
-                f"provided by the client."
+                f"We will deliver: {project_title}. "
+                f"Work follows the requirements below and "
+                f"stays within the services {business_name} offers."
             ),
             "",
             "Client Requirements",
-            requirements,
+            requirements or "As discussed during intake.",
         ]
     )
 
@@ -850,7 +863,7 @@ def _llm_config():
     model = (
         os.getenv("LLM_MODEL", "").strip()
         or os.getenv("OPENAI_MODEL", "").strip()
-        or "llama-3.1-8b-instant"
+        or "openai/gpt-oss-20b"
     )
     return api_key, base_url, model
 
@@ -995,6 +1008,7 @@ async def next_intake_question(
 
     remaining = max(total_questions - question_index, 1)
     slot_hints = {
+        0: "opening ask — what they need from this business, in plain language",
         1: "must-haves / important details for a good result",
         2: "size / quantity / how large the job is",
         3: "deadline or preferred completion time",
@@ -1023,15 +1037,17 @@ Client answers so far:
 Follow-up slot {question_index} of {total_questions - 1}.
 Guidance for this slot: {hint}.
 
-Examples of GOOD dynamic questions:
-- If they want cake → "How many people should this cake serve?"
-- If bakery / pastry → "Which pastry or flavour do you prefer?"
-- If catering → "How many guests, and is this for lunch or dinner?"
-- If design work → "Do you already have brand colours or examples?"
-- If cleaning → "Is this a one-time clean or a recurring visit?"
+Examples of GOOD dynamic questions (match the niche above):
+- Photography → "Is this a wedding, portrait, product, or event shoot?"
+- Photography → "Where is the location, and how many hours do you need?"
+- Design → "Do you already have brand colours or reference examples?"
+- Cleaning → "Is this a one-time clean or a recurring visit?"
+- Catering/food only if niche is food → "How many guests?"
+- Cake only if client asked for cake → "How many people should it serve?"
 
 Rules:
 - ONE question only
+- MUST fit this business niche and services (never ask food/cake questions for photography, design, etc.)
 - Specific to their words + this niche (not a blank template)
 - Under 35 words
 - Friendly, professional
