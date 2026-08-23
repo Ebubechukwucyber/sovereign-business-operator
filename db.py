@@ -355,8 +355,12 @@ def _slugify(text: str) -> str:
     return (text or "studio")[:40]
 
 
-def ensure_owner_slug(telegram_id, name="") -> str:
-    """Assign a unique public slug for deep links if missing."""
+def ensure_owner_slug(telegram_id, name="", force=False) -> str:
+    """
+    Assign a unique public slug for deep links.
+    If force=True (e.g. after /setup), rebuild from current business name
+    so the invite matches the studio name.
+    """
     row = get_owner(telegram_id)
     if not row:
         return ""
@@ -364,16 +368,27 @@ def ensure_owner_slug(telegram_id, name="") -> str:
         existing = (row["slug"] or "").strip()
     except Exception:
         existing = ""
-    if existing:
+
+    base = _slugify(name or (row["name"] if row else "") or f"biz-{telegram_id}")
+    if not base:
+        base = f"biz-{telegram_id}"
+
+    # Keep existing only when not forcing and already set
+    if existing and not force:
         return existing
 
-    base = _slugify(name or row["name"] or f"biz-{telegram_id}")
+    # When forcing: if existing already matches this name base, keep it
+    if existing and force:
+        if existing == base or existing.startswith(base + "-"):
+            # still ok, but prefer exact base if free
+            pass
+
     slug = base
     conn = get_connection()
     n = 0
     while True:
         found = conn.execute(
-            "SELECT telegram_id FROM owners WHERE slug = ? AND telegram_id != ?",
+            "SELECT telegram_id FROM owners WHERE lower(slug) = ? AND telegram_id != ?",
             (slug, telegram_id),
         ).fetchone()
         if not found:

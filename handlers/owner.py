@@ -520,6 +520,7 @@ async def setup_email(update, context):
         invite_slug = ensure_owner_slug(
             oid(update),
             data.get("name") or "",
+            force=True,
         )
     except Exception:
         invite_slug = ""
