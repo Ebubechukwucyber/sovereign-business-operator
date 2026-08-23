@@ -436,9 +436,11 @@ def build_application():
 
             CallbackQueryHandler(
                 edit_days_start,
-    edit_slug_start,
-    save_slug_value,
                 pattern=r"^edit_days$",
+            ),
+            CallbackQueryHandler(
+                edit_slug_start,
+                pattern=r"^edit_slug$",
             ),
         ],
 
