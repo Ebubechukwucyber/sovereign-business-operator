@@ -17,6 +17,14 @@
   <img src="https://img.shields.io/badge/status-production%20demo-168AAD" alt="Status" />
 </p>
 
+<p align="center">
+  <a href="https://t.me/sovereign_business_operator_bot"><strong>Live bot</strong></a>
+  ·
+  <a href="https://sovereignoperator.netlify.app/"><strong>Website</strong></a>
+  ·
+  <a href="https://youtu.be/fFmWMjToMao"><strong>Demo video</strong></a>
+</p>
+
 ---
 
 ## Table of contents
@@ -58,8 +66,16 @@ It is designed for the **Orion Agents** class of product: useful, listable, and 
 | **Settlement** | Base mainnet USDC verification only via `payment_verifier.py` |
 | **Documents** | Proposal, receipt, invoice, order export PDFs |
 
-**Production payment network:** Base **mainnet** (chain id `8453`), USDC on Base.
+**Production payment network:** Base **mainnet** (chain id `8453`), USDC on Base.  
 Documents and chat labels show **Base** / **USDC** — not Base Sepolia.
+
+**Try it**
+
+| Resource | Link |
+|----------|------|
+| Live Telegram bot | https://t.me/sovereign_business_operator_bot |
+| Landing page | https://sovereignoperator.netlify.app/ |
+| Product demo (YouTube) | https://youtu.be/fFmWMjToMao |
 
 ---
 
@@ -81,7 +97,7 @@ Documents and chat labels show **Base** / **USDC** — not Base Sepolia.
 
 ```text
 Client Telegram
-  └─ /start {slug}  →  bind session to business
+  └─ /start {slug} → bind session to business
         │
         ▼
 Telegram Bot API
@@ -90,21 +106,23 @@ Telegram Bot API
 main.py + handlers (client / owner)
         │
         ├─ AI (Groq / OpenAI-compatible)
-        │     dynamic questions · refine answers · price · proposal
+        │ dynamic questions · refine answers · price · proposal
         │
         ├─ SQLite
-        │     owners (slug, wallet, email…)
-        │     jobs (business_id, payment_*, docs…)
+        │ owners (slug, wallet, email…)
+        │ jobs (business_id, payment_*, docs…)
         │
         ├─ PDF engine
-        │     proposal · invoice · receipt · order export
+        │ proposal · invoice · receipt · order export
         │
-        └─ payment_verifier.py  ──JSON-RPC──►  Base mainnet USDC
+        └─ payment_verifier.py ──JSON-RPC──► Base mainnet USDC
                                                     │
                     owner Telegram + Resend email ◄──┘
 ```
 
 **Hard rule:** the LLM never marks a job paid. Only a successful verifier result does.
+
+**Walkthrough:** [product demo on YouTube](https://youtu.be/fFmWMjToMao) — intake → quote → Base USDC → on-chain verify → receipt & invoice.
 
 ---
 
@@ -122,6 +140,8 @@ NEW
 ```
 
 Optional: pause / resume while open.
+
+End-to-end flow is shown in the [demo video](https://youtu.be/fFmWMjToMao).
 
 ---
 
@@ -285,6 +305,12 @@ Create `.env` from the variables below, then:
 python main.py
 ```
 
+Public demo (no local setup):
+
+- Bot: https://t.me/sovereign_business_operator_bot  
+- Site: https://sovereignoperator.netlify.app/  
+- Video: https://youtu.be/fFmWMjToMao  
+
 ---
 
 ## Configuration
@@ -317,6 +343,8 @@ python main.py
 5. Share invite: `/start your-slug` or `https://t.me/<bot>?start=your-slug`  
 6. **Orders** → deliver, export, send files  
 
+Live bot: https://t.me/sovereign_business_operator_bot  
+
 ---
 
 ## Client guide
@@ -327,6 +355,8 @@ python main.py
 4. Send **USDC on Base** to the shown address (exact amount)  
 5. Paste TX hash from Basescan  
 6. Receive receipt + invoice after confirmation  
+
+See the flow in the [demo video](https://youtu.be/fFmWMjToMao).
 
 ---
 
@@ -339,6 +369,7 @@ There is no public web analytics UI yet. Use:
 - Telegram **Orders** list  
 - Paid alerts (Telegram + email)  
 - Export PDF / batch export  
+- **Stats** on the owner menu  
 
 ### Platform-wide (operator with DB access)
 
@@ -356,8 +387,8 @@ SELECT payment_status, COUNT(*) FROM jobs GROUP BY payment_status;
 
 ### Recommended next build
 
-- Owner **Stats** button (counts, paid total)  
 - Super-admin command for `OWNER_TELEGRAM_ID` listing all businesses  
+- Billing / self-serve SaaS dashboard  
 
 ---
 
@@ -372,6 +403,8 @@ SELECT payment_status, COUNT(*) FROM jobs GROUP BY payment_status;
 5. Ensure only **one** worker polls the bot token  
 
 **Landing page:** host `web/` (Netlify / GitHub Pages / etc.). Set publish directory to `web`.
+
+Current public site: https://sovereignoperator.netlify.app/  
 
 ---
 
@@ -424,3 +457,5 @@ MIT.
 ---
 
 **Sovereign Business Operator** — AI commercial judgment, deterministic Base USDC settlement, multi-owner ready for real service businesses.
+
+**Links:** [Bot](https://t.me/sovereign_business_operator_bot) · [Website](https://sovereignoperator.netlify.app/) · [Demo](https://youtu.be/fFmWMjToMao)
