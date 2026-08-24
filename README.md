@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://basescan.org"><img src="https://img.shields.io/badge/network-Base%20Mainnet%20(8453)-0B1F3A" alt="Base Mainnet" /></a>
-  <img src="https://img.shields.io/badge/token-USDC%20(Circle)-F4C430" alt="USDC" />
+  <img src="https://img.shields.io/badge/token-USDC%20(Base)-F4C430" alt="USDC" />
   <img src="https://img.shields.io/badge/interface-Telegram-26A5E4" alt="Telegram" />
   <img src="https://img.shields.io/badge/tenancy-multi--owner%20v1-1A8A9D" alt="Multi-owner" />
   <img src="https://img.shields.io/badge/status-production%20demo-168AAD" alt="Status" />
