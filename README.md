@@ -77,6 +77,14 @@ Documents and chat labels show **Base** / **USDC** — not Base Sepolia.
 | Landing page | https://sovereignoperator.netlify.app/ |
 | Product demo (YouTube) | https://youtu.be/fFmWMjToMao |
 
+
+## Product demo
+
+[![Sovereign product demo](https://img.youtube.com/vi/fFmWMjToMao/maxresdefault.jpg)](https://youtu.be/fFmWMjToMao)
+
+Full walkthrough: [youtu.be/fFmWMjToMao](https://youtu.be/fFmWMjToMao) · [Live bot](https://t.me/sovereign_business_operator_bot) · [Website](https://sovereignoperator.netlify.app/)
+
+
 ---
 
 ## Problem & solution
